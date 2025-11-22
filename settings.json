@@ -1,0 +1,34 @@
+{
+    "Pusher 1": {
+      "label": "Reject Video Game",
+      "distance": 222
+    },
+    "Pusher 2": {
+      "label": "Extra",
+      "distance": 313
+    },
+    "Pusher 3": {
+      "label": "Reject DVD",
+      "distance": 464
+    },
+    "Pusher 4": {
+      "label": "FBA",
+      "distance": 380
+    },
+    "Pusher 5": {
+      "label": "Reject Music",
+      "distance": 607
+    },
+    "Pusher 6": {
+      "label": "MF",
+      "distance": 710
+    },
+    "Pusher 7": {
+      "label": "SBYB",
+      "distance": 850
+    },
+    "Pusher 8": {
+      "label": "Extra",
+      "distance": 972
+    }
+  }

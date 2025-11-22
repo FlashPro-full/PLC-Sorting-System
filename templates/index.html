@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conveyor System - Live System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <!-- Load Three.js from CDN first -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <!-- Socket.IO for real-time communication -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script type="module" src="{{ url_for('static', filename='conveyor3d.js') }}"></script>
+    <script src="{{ url_for('static', filename='init3d.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+</head>
+<body>
+    <main class="app-shell">
+        <header class="app-header">
+            <h1 class="app-title">🎮 Live Conveyor System</h1>
+            <div class="app-actions">
+                <div id="status-indicators" style="display: flex; gap: 12px; align-items: center; font-size: 0.9em; flex-wrap: wrap;">
+                    <span id="plc-status" style="padding: 6px 12px; border-radius: 6px; background: #666; color: #fff; font-weight: 500; transition: all 0.3s ease;">
+                        <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; opacity: 0.5;"></span>
+                        PLC: Checking...
+                    </span>
+                    <span id="scanner-status" style="padding: 6px 12px; border-radius: 6px; background: #666; color: #fff; font-weight: 500; transition: all 0.3s ease;">
+                        <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; opacity: 0.5;"></span>
+                        Scanner: Checking...
+                    </span>
+                    <span id="photo-eye-status" style="padding: 6px 12px; border-radius: 6px; background: #666; color: #fff; font-weight: 500; transition: all 0.3s ease;">
+                        <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; opacity: 0.5;"></span>
+                        Photo Eye: Checking...
+                    </span>
+                </div>
+            </div>
+        </header>
+
+        <section class="full-width-layout">
+            <!-- 3D Visualization - Full Width -->
+            <div class="card visualization-card">
+                <label style="margin-bottom: 8px; display: block; font-size: 0.9rem;">3D Conveyor System (Live)</label>
+                <div id="conveyor3d" style="width: 95%; height: 600px; border-radius: 8px; overflow: hidden; background: #1a1a1a; position: relative; margin: 0 auto;">
+                    <div id="conveyor3d-loading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; text-align: center;">
+                        <div>Loading 3D visualization...</div>
+                        <div style="font-size: 0.8em; margin-top: 10px; color: #aaa;">If this doesn't load, check browser console (F12)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Barcode Input Field (for Keyboard Mode Scanner) -->
+            <div class="card" style="margin-bottom: 20px;">
+                <label style="margin-bottom: 8px; display: block; font-size: 0.9rem; font-weight: 600;">📦 Scan Barcode (Keyboard Mode)</label>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <input 
+                        type="text" 
+                        id="barcodeInput" 
+                        autofocus
+                        style="flex: 1; padding: 12px 16px; font-size: 1.2em; font-family: monospace; border: 2px solid var(--border); border-radius: 8px; background: #fff; color: #333; font-weight: 600; text-align: center;"
+                        placeholder="Focus here and scan barcode (scanner types automatically)..."
+                    />
+                    <button 
+                        onclick="document.getElementById('barcodeInput').value = ''; document.getElementById('barcodeInput').focus(); console.log('Barcode input cleared');"
+                        style="padding: 12px 24px; background: #e74c3c; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 1em; transition: background 0.2s;"
+                        onmouseover="this.style.background='#c0392b'"
+                        onmouseout="this.style.background='#e74c3c'"
+                    >
+                        Clear
+                    </button>
+                </div>
+                <div style="margin-top: 8px; font-size: 0.85em; color: var(--muted);">
+                    <strong>Note:</strong> Backend automatically processes barcodes from scanner.
+                    <br><span style="color: #e74c3c; font-weight: 600;">⚠️ This field is for MANUAL TESTING ONLY - press Enter to submit manually.</span>
+                    <br><span style="color: #3a7afe;">💡 For keyboard mode: Backend launches separate terminal window to capture scanner input.</span>
+                </div>
+            </div>
+
+            <!-- Last Scanned Barcode Display (Read-only) -->
+            <div class="card" style="margin-bottom: 20px;">
+                <label style="margin-bottom: 8px; display: block; font-size: 0.9rem; font-weight: 600;">📋 Last Processed Barcode</label>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <input 
+                        type="text" 
+                        id="scannedBarcodeDisplay" 
+                        readonly 
+                        style="flex: 1; padding: 12px 16px; font-size: 1.2em; font-family: monospace; border: 2px solid var(--border); border-radius: 8px; background: #f8f9fa; color: #333; font-weight: 600; text-align: center;"
+                        placeholder="No barcode processed yet..."
+                    />
+                </div>
+                <div style="margin-top: 8px; font-size: 0.85em; color: var(--muted);">
+                    This field shows the last barcode that was successfully processed by the backend
+                </div>
+            </div>
+
+            <!-- Information Table - Full Width -->
+            <div class="card info-table-card">
+                <label style="margin-bottom: 8px; display: block; font-size: 0.9rem;">📊 Active Items (Live)</label>
+                <div style="overflow-x: auto;">
+                    <table id="active-items-table" style="width: 100%; border-collapse: collapse; font-size: 1.1em;">
+                        <thead>
+                            <tr style="background: rgba(58, 122, 254, 0.1); border-bottom: 2px solid var(--border);">
+                                <th style="padding: 10px; text-align: left; font-weight: 600; color: var(--muted);">Barcode</th>
+                                <th style="padding: 10px; text-align: left; font-weight: 600; color: var(--muted);">Label</th>
+                                <th style="padding: 10px; text-align: left; font-weight: 600; color: var(--muted);">Position ID</th>
+                                <th style="padding: 10px; text-align: left; font-weight: 600; color: var(--muted);">Distance (cm)</th>
+                                <th style="padding: 10px; text-align: left; font-weight: 600; color: var(--muted);">Pusher</th>
+                                <th style="padding: 10px; text-align: left; font-weight: 600; color: var(--muted);">👁️ Photo Eye</th>
+                                <th style="padding: 10px; text-align: left; font-weight: 600; color: var(--muted);">📡 API Status</th>
+                                <th style="padding: 10px; text-align: left; font-weight: 600; color: var(--muted);">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="active-items-tbody">
+                            <tr>
+                                <td colspan="8" style="padding: 12px; text-align: center; color: var(--muted); font-style: italic; font-size: 1.1em;">
+                                    Waiting for items...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top: 8px; font-size: 1.0em; color: var(--muted);">
+                    <span id="items-count">0</span> active item(s) • Updates every 1 second
+                </div>
+            </div>
+
+        </section>
+    </main>
+</body>
+</html>

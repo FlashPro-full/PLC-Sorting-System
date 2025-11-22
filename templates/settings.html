@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conveyor Settings</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="{{ url_for('static', filename='settings.js') }}" defer></script>
+</head>
+<body>
+    <main class="app-shell">
+        <header class="app-header">
+            <h1 class="app-title">Pusher Configuration</h1>
+            <div class="app-actions">
+                <a href="/">Back to routing</a>
+            </div>
+        </header>
+
+        <form id="settingsForm" class="split-layout">
+            <div class="card">
+                <p style="margin:0;color:var(--muted);font-size:0.95rem;">
+                    Map PalletIQ labels to conveyor pushers and fine-tune travel distances.
+                </p>
+            </div>
+
+            <div id="pusherSettings" class="pusher-grid">
+                {% for pusher in pushers %}
+                    <fieldset class="fieldset-card">
+                        <legend>{{ pusher }}</legend>
+                        <div class="field-group">
+                            <label for="{{ pusher }}_label">Label</label>
+                            <select id="{{ pusher }}_label" name="{{ pusher }}[label]" required>
+                                {% for label in labels %}
+                                    <option value="{{ label }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="field-group">
+                            <label for="{{ pusher }}_distance">Distance (cm)</label>
+                            <input type="number" step="0.001" id="{{ pusher }}_distance" name="{{ pusher }}[distance]" required>
+                        </div>
+                    </fieldset>
+                {% endfor %}
+            </div>
+
+            <div class="form-footer">
+                <button type="submit">Save Changes</button>
+            </div>
+        </form>
+    </main>
+</body>
+</html>
