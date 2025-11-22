@@ -9,7 +9,7 @@ from pymodbus.client import ModbusTcpClient
 PLC_IP = os.getenv('PLC_IP')
 PLC_PORT = int(os.getenv('PLC_PORT', '502'))
 PLC_TIMEOUT = float(os.getenv('PLC_TIMEOUT', '5.0'))
-PHOTO_EYE_ADDRESS = int(os.getenv('PHOTO_EYE_ADDRESS', '1'))
+PHOTO_EYE_ADDRESS = int(os.getenv('PHOTO_EYE_ADDRESS', '0x0015'))
 UNIT_ID = int(os.getenv('MODBUS_UNIT_ID', '1'))
 
 plc = None
@@ -177,12 +177,8 @@ def read_belt_speed():
     BELT_SPEED_ADDRESS = int(os.getenv("BELT_SPEED_REGISTER", "0x0020"), 16)
 
     with modbus_lock:
-        modbus = connect_plc()
-        if modbus is None:
-            return None
-        
         try:
-            result = modbus.read_input_registers(BELT_SPEED_ADDRESS, count=1, unit=UNIT_ID)
+            result = plc.read_input_registers(BELT_SPEED_ADDRESS, count=1)
             if not result.isError() and result.registers:
                 speed_raw = result.registers[0]
                 speed_cm_per_sec = speed_raw / 10.0
@@ -218,11 +214,6 @@ def write_settings(settings=None):
         "Pusher 8": 0x700E
     }
     with modbus_lock:
-        modbus = connect_plc()
-        if not modbus:
-            print("❌ No Modbus connection for write_settings")
-            return
-        
         for pusher, address in MODBUS_REGISTERS.items():
             if pusher not in settings:
                 continue
@@ -230,10 +221,10 @@ def write_settings(settings=None):
             high, low = float_to_registers(dist)
             print(f"📝 Writing {pusher}: {dist} → [{high}, {low}] to 0x{address:X}")
             try:
-                modbus.write_registers(address + 1, [high, low], unit=UNIT_ID)
+                plc.write_registers(address + 1, [high, low], unit=UNIT_ID)
             except Exception as e:
                 print(f"❌ Error writing {pusher}: {e}")
-        modbus.close()
+        plc.close()
 
     load_settings()
 
@@ -283,12 +274,12 @@ def read_photo_eye():
     
     try:
         with modbus_lock:
-            result = plc.read_coils(PHOTO_EYE_ADDRESS, count=1)
-            if result and not result.isError():
-                print(f"Photo eye: Unblocked\n")
-                return result.bits[0] if result.bits else 0
-            else:
-                print(f"Photo eye: blocked\n")
+            result = plc.read_input_registers(PHOTO_EYE_ADDRESS, count=1)
+            if result.isError():
+                print("❌ Modbus read error")
+                return 0
+            value = result.registers[0]
+            return value
     except Exception:
         pass
     
@@ -312,13 +303,13 @@ def _photo_eye_monitor_loop():
         try:
             current_value = read_photo_eye()
             
-            if _photo_eye_last_value == 0 and current_value == 1:
+            if _photo_eye_last_value != current_value:
                 with _photo_eye_callbacks_lock:
                     callbacks = _photo_eye_callbacks.copy()
                 
                 for callback in callbacks:
                     try:
-                        threading.Thread(target=callback, daemon=True).start()
+                        threading.Thread(target=callback, args=(PHOTO_EYE_ADDRESS,), daemon=True).start()
                     except:
                         pass
             

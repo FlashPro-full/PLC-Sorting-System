@@ -56,8 +56,7 @@ def get_active_items():
             for barcode, item_data in book_dict.items():
                 location = item_data.get("location", 0)
                 distance = item_data.get("distance", 1)
-                position_id = 101 + int((location / max(distance, 1)) * 49)
-                position_id = min(max(position_id, 101), 150)
+                position_id = item_data.get("position_id", 101 + int((location / max(distance, 1)) * 49))
                 
                 items.append({
                     "barcode": barcode,
@@ -65,9 +64,10 @@ def get_active_items():
                     "pusher": item_data.get("pusher"),
                     "distance": distance,
                     "position_id": position_id,
-                    "label": "Unknown",
+                    "label": item_data.get("label", "Unknown"),
                     "pusher_distance": distance,
-                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                    "distance_traveled": location,
+                    "created_at": item_data.get("created_at", time.strftime("%Y-%m-%d %H:%M:%S"))
                 })
         
         return jsonify({

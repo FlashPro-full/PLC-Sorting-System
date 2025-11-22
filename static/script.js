@@ -85,16 +85,6 @@ function updateActiveItemsTableFromData(data) {
                 ? `<span style="padding: 4px 8px; background: rgba(39, 174, 96, 0.2); border-radius: 4px; font-weight: 600; font-size: 1.0em; color: #27ae60;">👁️ ${photoEyeTime}</span>`
                 : `<span style="padding: 4px 8px; background: rgba(149, 165, 166, 0.2); border-radius: 4px; font-size: 1.0em; color: #95a5a6;">N/A</span>`;
             
-            // PalletIQ API status
-            const apiStatus = item.palletiq_status || {};
-            const apiStatusText = apiStatus.status === "success" 
-                ? `✅ ${apiStatus.response_time ? apiStatus.response_time + 's' : 'OK'}`
-                : apiStatus.status === "error"
-                ? `❌ ${apiStatus.status_code || 'Error'}`
-                : "⏳ Pending";
-            const apiStatusColor = apiStatus.status === "success" ? "#27ae60" : apiStatus.status === "error" ? "#e74c3c" : "#f39c12";
-            const apiStatusBg = apiStatus.status === "success" ? "rgba(39, 174, 96, 0.2)" : apiStatus.status === "error" ? "rgba(231, 76, 60, 0.2)" : "rgba(243, 156, 18, 0.2)";
-            
                     row.innerHTML = `
                         <td style="padding: 10px; font-family: monospace; font-weight: 600; font-size: 1.1em;">${item.barcode}</td>
                         <td style="padding: 10px;">
@@ -115,11 +105,6 @@ function updateActiveItemsTableFromData(data) {
                         </td>
                         <td style="padding: 10px; font-size: 1.0em;">
                             ${photoEyeBadge}
-                        </td>
-                        <td style="padding: 10px; font-size: 1.0em;">
-                            <span style="padding: 4px 8px; background: ${apiStatusBg}; border-radius: 4px; font-weight: 600; color: ${apiStatusColor};">
-                                ${apiStatusText}
-                            </span>
                         </td>
                         <td style="padding: 10px; font-size: 1.1em; color: var(--muted); font-family: monospace;">
                             ${timeStr}

@@ -59,6 +59,7 @@ def get_pusher_number(label: str) -> Dict[str, int]:
             match = re.search(r'\d+', pusher)
             if match:
                 return {
+                    'label': config.get('label'),
                     'pusher_number': int(match.group(0)), 
                     'distance': int(config.get('distance', 0))
                 }
