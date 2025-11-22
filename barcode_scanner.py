@@ -23,28 +23,50 @@ _barcode_scanner_lock = threading.Lock()
 _barcode_buffer = b""
 _last_barcode = ""
 
-def get_input():
-    import sys
-    while True:
-        try:
-            sys.stdout.write('> ')
-            sys.stdout.flush()
-            user_input = sys.stdin.readline()
-            if user_input:
-                user_input = user_input.strip()
-                if user_input:
-                    with _barcode_callbacks_lock:
-                        callbacks = _barcode_callbacks.copy()
-                    
-                    for callback in callbacks:
-                        try:
-                            threading.Thread(target=callback, args=(user_input,), daemon=True).start()
-                        except:
-                            pass
-        except (EOFError, KeyboardInterrupt):
-            break
-        except:
-            time.sleep(0.1) 
+_keyboard_listener = None
+_keyboard_buffer = ""
+_keyboard_last_time = 0
+_keyboard_lock = threading.Lock()
+BARCODE_TIMEOUT_MS = 50
+
+def _on_key_press(key):
+    global _keyboard_buffer, _keyboard_last_time, _last_barcode
+    
+    try:
+        from pynput.keyboard import Key  # type: ignore
+        
+        current_time = time.time() * 1000
+        
+        with _keyboard_lock:
+            time_since_last = current_time - _keyboard_last_time
+            
+            if time_since_last > BARCODE_TIMEOUT_MS:
+                _keyboard_buffer = ""
+            
+            try:
+                if hasattr(key, 'char') and key.char:
+                    _keyboard_buffer += key.char
+                    _keyboard_last_time = current_time
+                elif key == Key.enter or (hasattr(key, 'name') and key.name == 'enter'):
+                    if _keyboard_buffer:
+                        barcode = _keyboard_buffer.strip()
+                        _keyboard_buffer = ""
+                        _keyboard_last_time = 0
+                        
+                        if barcode and barcode != _last_barcode:
+                            _last_barcode = barcode
+                            with _barcode_callbacks_lock:
+                                callbacks = _barcode_callbacks.copy()
+                            
+                            for callback in callbacks:
+                                try:
+                                    threading.Thread(target=callback, args=(barcode,), daemon=True).start()
+                                except:
+                                    pass
+            except AttributeError:
+                pass
+    except Exception:
+        pass 
 
 def connect_barcode_scanner():
     global _barcode_scanner
@@ -200,11 +222,44 @@ def _barcode_scanner_loop():
             time.sleep(0.1)
 
 def start_barcode_scanner():
-    global _barcode_scanner_thread, _barcode_scanner_running
+    global _barcode_scanner_thread, _barcode_scanner_running, _keyboard_listener
     
     if BARCODE_MODE == 'KEYBOARD':
-        input_thread = threading.Thread(target=get_input, daemon=True)
-        input_thread.start()
+        try:
+            from pynput import keyboard  # type: ignore
+            
+            _keyboard_listener = keyboard.Listener(on_press=_on_key_press)
+            _keyboard_listener.daemon = True
+            _keyboard_listener.start()
+            print("✅ Global keyboard hook activated for barcode scanning")
+        except ImportError:
+            print("❌ pynput library not found. Install with: pip install pynput")
+            print("⚠️ Falling back to console input mode")
+            import sys
+            def fallback_input():
+                while True:
+                    try:
+                        sys.stdout.write('> ')
+                        sys.stdout.flush()
+                        user_input = sys.stdin.readline()
+                        if user_input:
+                            user_input = user_input.strip()
+                            if user_input:
+                                with _barcode_callbacks_lock:
+                                    callbacks = _barcode_callbacks.copy()
+                                for callback in callbacks:
+                                    try:
+                                        threading.Thread(target=callback, args=(user_input,), daemon=True).start()
+                                    except:
+                                        pass
+                    except (EOFError, KeyboardInterrupt):
+                        break
+                    except:
+                        time.sleep(0.1)
+            input_thread = threading.Thread(target=fallback_input, daemon=True)
+            input_thread.start()
+        except Exception as e:
+            print(f"❌ Failed to start keyboard hook: {e}")
         return
     
     if _barcode_scanner_thread is None or not _barcode_scanner_thread.is_alive():
@@ -213,8 +268,15 @@ def start_barcode_scanner():
         _barcode_scanner_thread.start()
 
 def stop_barcode_scanner():
-    global _barcode_scanner_running, _barcode_scanner
+    global _barcode_scanner_running, _barcode_scanner, _keyboard_listener
     _barcode_scanner_running = False
+    
+    if _keyboard_listener is not None:
+        try:
+            _keyboard_listener.stop()
+        except:
+            pass
+        _keyboard_listener = None
     
     with _barcode_scanner_lock:
         if _barcode_scanner is not None:
