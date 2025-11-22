@@ -54,32 +54,6 @@
                 </div>
             </div>
 
-            <!-- Barcode Input Field (for Keyboard Mode Scanner) -->
-            <div class="card" style="margin-bottom: 20px;">
-                <label style="margin-bottom: 8px; display: block; font-size: 0.9rem; font-weight: 600;">📦 Scan Barcode (Keyboard Mode)</label>
-                <div style="display: flex; gap: 12px; align-items: center;">
-                    <input 
-                        type="text" 
-                        id="barcodeInput" 
-                        autofocus
-                        style="flex: 1; padding: 12px 16px; font-size: 1.2em; font-family: monospace; border: 2px solid var(--border); border-radius: 8px; background: #fff; color: #333; font-weight: 600; text-align: center;"
-                        placeholder="Focus here and scan barcode (scanner types automatically)..."
-                    />
-                    <button 
-                        onclick="document.getElementById('barcodeInput').value = ''; document.getElementById('barcodeInput').focus(); console.log('Barcode input cleared');"
-                        style="padding: 12px 24px; background: #e74c3c; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 1em; transition: background 0.2s;"
-                        onmouseover="this.style.background='#c0392b'"
-                        onmouseout="this.style.background='#e74c3c'"
-                    >
-                        Clear
-                    </button>
-                </div>
-                <div style="margin-top: 8px; font-size: 0.85em; color: var(--muted);">
-                    <strong>Note:</strong> Backend automatically processes barcodes from scanner.
-                    <br><span style="color: #e74c3c; font-weight: 600;">⚠️ This field is for MANUAL TESTING ONLY - press Enter to submit manually.</span>
-                    <br><span style="color: #3a7afe;">💡 For keyboard mode: Backend launches separate terminal window to capture scanner input.</span>
-                </div>
-            </div>
 
             <!-- Last Scanned Barcode Display (Read-only) -->
             <div class="card" style="margin-bottom: 20px;">
