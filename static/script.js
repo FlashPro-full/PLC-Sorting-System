@@ -19,6 +19,13 @@ function updateActiveItemsTableFromData(data) {
     if (!tbody) return;
     
     if (data.items && data.items.length > 0) {
+        // Clear any initial "Waiting for items..." rows that don't have barcode
+        Array.from(tbody.children).forEach(row => {
+            if (!row.dataset.barcode) {
+                row.remove();
+            }
+        });
+        
         // Track existing rows by barcode to update/remove them
         const existingRows = {};
         Array.from(tbody.children).forEach(row => {
@@ -50,66 +57,75 @@ function updateActiveItemsTableFromData(data) {
         // Add or update rows for each item
         console.log(`📊 Processing ${data.items.length} items for table`);
         data.items.forEach((item, index) => {
-            const barcode = item.barcode;
-            console.log(`📊 Item ${index + 1}/${data.items.length}:`, {
-                barcode: barcode,
-                position_id: item.position_id,
-                label: item.label,
-                pusher: item.pusher
-            });
-            let row = existingRows[barcode];
-            
-            if (!row) {
-                // Create new row
-                row = document.createElement("tr");
-                row.dataset.barcode = barcode;
-                row.style.borderBottom = "1px solid var(--border)";
-                row.style.transition = "background 0.2s, opacity 0.3s";
-                row.onmouseenter = () => row.style.background = "rgba(58, 122, 254, 0.05)";
-                row.onmouseleave = () => row.style.background = "";
-                tbody.appendChild(row);
-                existingRows[barcode] = row;
+            try {
+                const barcode = item.barcode;
+                if (!barcode) {
+                    console.warn(`⚠️ Item ${index} has no barcode, skipping`);
+                    return;
+                }
+                
+                console.log(`📊 Item ${index + 1}/${data.items.length}:`, {
+                    barcode: barcode,
+                    position: item.position,
+                    label: item.label,
+                    pusher: item.pusher
+                });
+                let row = existingRows[barcode];
+                
+                if (!row) {
+                    // Create new row
+                    row = document.createElement("tr");
+                    row.dataset.barcode = barcode;
+                    row.style.borderBottom = "1px solid var(--border)";
+                    row.style.transition = "background 0.2s, opacity 0.3s";
+                    row.onmouseenter = () => row.style.background = "rgba(58, 122, 254, 0.05)";
+                    row.onmouseleave = () => row.style.background = "";
+                    tbody.appendChild(row);
+                    existingRows[barcode] = row;
+                }
+                
+                // Format time
+                const timeStr = item.created_at || new Date().toLocaleTimeString();
+                
+                // Display distance to pusher (not distance traveled)
+                const distanceToPusher = (item.distance !== undefined && item.distance !== null)
+                    ? `${Number(item.distance).toFixed(1)} cm`
+                    : "Calculating...";
+                
+                // Photo Eye detection info
+                const photoEyeNumber = item.photo_eye;
+                const photoEyeBadge = (photoEyeNumber !== undefined && photoEyeNumber !== null)
+                    ? `<span style="padding: 4px 8px; background: rgba(39, 174, 96, 0.2); border-radius: 4px; font-weight: 600; font-size: 1.0em; color: #27ae60;">👁️ ${photoEyeNumber}</span>`
+                    : `<span style="padding: 4px 8px; background: rgba(149, 165, 166, 0.2); border-radius: 4px; font-size: 1.0em; color: #95a5a6;">N/A</span>`;
+                
+                row.innerHTML = `
+                    <td style="padding: 10px; font-family: monospace; font-weight: 600; font-size: 1.1em;">${barcode}</td>
+                    <td style="padding: 10px;">
+                        <span style="padding: 4px 8px; background: rgba(58, 122, 254, 0.1); border-radius: 4px; font-weight: 600; color: var(--accent); font-size: 1.1em;">
+                            ${item.label || "N/A"}
+                        </span>
+                    </td>
+                    <td style="padding: 10px; font-family: monospace; font-weight: 600; color: var(--accent); font-size: 1.1em;">
+                        ${item.position || "N/A"}
+                    </td>
+                    <td style="padding: 10px; font-size: 1.1em; color: var(--accent); font-weight: 600;">
+                        ${distanceToPusher}
+                    </td>
+                    <td style="padding: 10px;">
+                        <span style="padding: 4px 8px; background: rgba(255, 193, 7, 0.2); border-radius: 4px; font-weight: 600; font-size: 1.1em;">
+                            ${item.pusher || "N/A"}
+                        </span>
+                    </td>
+                    <td style="padding: 10px; font-size: 1.0em;">
+                        ${photoEyeBadge}
+                    </td>
+                    <td style="padding: 10px; font-size: 1.1em; color: var(--muted); font-family: monospace;">
+                        ${timeStr}
+                    </td>
+                `;
+            } catch (error) {
+                console.error(`❌ Error processing item ${index}:`, error, item);
             }
-            
-            // Format time
-            const timeStr = item.created_at || new Date().toLocaleTimeString();
-            
-            // Calculate distance traveled based on position ID (changable distance)
-            const distanceTraveled = item.distance_traveled !== undefined 
-                ? `${item.distance_traveled.toFixed(1)} cm`
-                : "Calculating...";
-            
-            // Photo Eye detection info
-            const photoEyeTime = item.photo_eye_detected_at || "N/A";
-            const photoEyeBadge = photoEyeTime !== "N/A" 
-                ? `<span style="padding: 4px 8px; background: rgba(39, 174, 96, 0.2); border-radius: 4px; font-weight: 600; font-size: 1.0em; color: #27ae60;">👁️ ${photoEyeTime}</span>`
-                : `<span style="padding: 4px 8px; background: rgba(149, 165, 166, 0.2); border-radius: 4px; font-size: 1.0em; color: #95a5a6;">N/A</span>`;
-            
-                    row.innerHTML = `
-                        <td style="padding: 10px; font-family: monospace; font-weight: 600; font-size: 1.1em;">${item.barcode}</td>
-                        <td style="padding: 10px;">
-                            <span style="padding: 4px 8px; background: rgba(58, 122, 254, 0.1); border-radius: 4px; font-weight: 600; color: var(--accent); font-size: 1.1em;">
-                                ${item.label || "N/A"}
-                            </span>
-                        </td>
-                        <td style="padding: 10px; font-family: monospace; font-weight: 600; color: var(--accent); font-size: 1.1em;">
-                            ${item.position_id}
-                        </td>
-                        <td style="padding: 10px; font-size: 1.1em; color: var(--accent); font-weight: 600;">
-                            ${distanceTraveled}
-                        </td>
-                        <td style="padding: 10px;">
-                            <span style="padding: 4px 8px; background: rgba(255, 193, 7, 0.2); border-radius: 4px; font-weight: 600; font-size: 1.1em;">
-                                ${item.pusher}
-                            </span>
-                        </td>
-                        <td style="padding: 10px; font-size: 1.0em;">
-                            ${photoEyeBadge}
-                        </td>
-                        <td style="padding: 10px; font-size: 1.1em; color: var(--muted); font-family: monospace;">
-                            ${timeStr}
-                        </td>
-                    `;
         });
         
         if (countSpan) {
@@ -121,13 +137,13 @@ function updateActiveItemsTableFromData(data) {
             detail: { items: data.items }
         }));
     } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="8" style="padding: 12px; text-align: center; color: var(--muted); font-style: italic; font-size: 1.1em;">
-                            Waiting for items...
-                        </td>
-                    </tr>
-                `;
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="padding: 12px; text-align: center; color: var(--muted); font-style: italic; font-size: 1.1em;">
+                    Waiting for items...
+                </td>
+            </tr>
+        `;
         if (countSpan) {
             countSpan.textContent = "0";
         }
@@ -201,11 +217,11 @@ function updateSystemStatusFromData(status) {
     // Update photo eye status
     const photoEyeStatus = document.getElementById("photo-eye-status");
     if (photoEyeStatus) {
-        if (status.photo_eye.active) {
-            photoEyeStatus.innerHTML = `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; opacity: 1; box-shadow: 0 0 6px rgba(255,255,255,0.8);"></span>Photo Eye: ${status.photo_eye.message}`;
+        if (status.photo_eye.connected) {
+            photoEyeStatus.innerHTML = `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; opacity: 1; box-shadow: 0 0 6px rgba(255,255,255,0.8);"></span>${status.photo_eye.message}`;
             photoEyeStatus.style.background = "#27ae60";
         } else {
-            photoEyeStatus.innerHTML = `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; opacity: 0.5;"></span>Photo Eye: ${status.photo_eye.message}`;
+            photoEyeStatus.innerHTML = `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; opacity: 0.5;"></span>${status.photo_eye.message}`;
             photoEyeStatus.style.background = "#666";
         }
     }

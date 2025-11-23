@@ -54,19 +54,16 @@ def get_active_items():
         with book_dict_lock:
             items = []
             for barcode, item_data in book_dict.items():
-                location = item_data.get("location", 0)
+                position = item_data.get("position", 0)
                 distance = item_data.get("distance", 1)
-                position_id = item_data.get("position_id", 101 + int((location / max(distance, 1)) * 49))
                 
                 items.append({
                     "barcode": barcode,
-                    "location": location,
+                    "position": position,
                     "pusher": item_data.get("pusher"),
                     "distance": distance,
-                    "position_id": position_id,
                     "label": item_data.get("label", "Unknown"),
-                    "pusher_distance": distance,
-                    "distance_traveled": location,
+                    "photo_eye": item_data.get("photo_eye"),
                     "created_at": item_data.get("created_at", time.strftime("%Y-%m-%d %H:%M:%S"))
                 })
         

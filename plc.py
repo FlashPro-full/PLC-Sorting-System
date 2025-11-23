@@ -9,7 +9,7 @@ from pymodbus.client import ModbusTcpClient
 PLC_IP = os.getenv('PLC_IP')
 PLC_PORT = int(os.getenv('PLC_PORT', '502'))
 PLC_TIMEOUT = float(os.getenv('PLC_TIMEOUT', '5.0'))
-PHOTO_EYE_ADDRESS = int(os.getenv('PHOTO_EYE_ADDRESS', '0x0015'))
+PHOTO_EYE_ADDRESS = int(os.getenv('PHOTO_EYE_ADDRESS', '0x0015'), 16)
 UNIT_ID = int(os.getenv('MODBUS_UNIT_ID', '1'))
 
 plc = None
@@ -270,16 +270,16 @@ def write_bucket(value, pusher, scan_id=None):
 
 def read_photo_eye():
     if plc is None:
-        return 0
+        return None
     
     try:
         with modbus_lock:
-            result = plc.read_input_registers(PHOTO_EYE_ADDRESS, count=1)
-            if result.isError():
-                print("❌ Modbus read error")
-                return 0
-            value = result.registers[0]
-            return value
+            result = plc.read_coils(1, count=1)
+            if result and not result.isError():
+                return result.bits[0] if result.bits else 0 
+            else:
+                print(f"Photo eye blocked")
+                return None
     except Exception:
         pass
     
@@ -302,14 +302,14 @@ def _photo_eye_monitor_loop():
     while _photo_eye_monitor_running:
         try:
             current_value = read_photo_eye()
-            
-            if _photo_eye_last_value != current_value:
+
+            if _photo_eye_last_value == 0 and current_value == 1:
                 with _photo_eye_callbacks_lock:
                     callbacks = _photo_eye_callbacks.copy()
                 
                 for callback in callbacks:
                     try:
-                        threading.Thread(target=callback, args=(PHOTO_EYE_ADDRESS,), daemon=True).start()
+                        threading.Thread(target=callback, args=(), daemon=True).start()
                     except:
                         pass
             
