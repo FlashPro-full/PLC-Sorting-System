@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 book_dict: Dict[str, dict] = {}
 book_dict_lock = threading.Lock()
 
+_tracking_thread = None
+_tracking_running = False
+
 belt_speed = 32.1
 
 app = Flask(__name__)
@@ -55,6 +58,8 @@ def on_palletiq_response(barcode: str, response):
         book_dict[barcode]["label"] = response.get("label")
         book_dict[barcode]["distance"] = response.get("distance")
         book_dict[barcode]["status"] = "progress"
+
+        print(f"🕒 API call duration for {barcode}: {time.time() - book_dict[barcode]["start_time"]:.2f} seconds")
         
         write_bucket(book_dict[barcode]["positionId"], book_dict[barcode]["pusher"])
 
