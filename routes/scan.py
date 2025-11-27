@@ -10,7 +10,7 @@ def index():
 
 @scan_bp.route('/scan', methods=['GET', 'POST'])
 def scan():
-    from palletiq_api import request_palletiq
+    from palletiq_api import request_palletiq_sync
     
     data = request.json or {}
     barcode = data.get("scan")
@@ -18,17 +18,23 @@ def scan():
     if not barcode:
         return jsonify({"error": "scan is required"}), 400
     
-    response = request_palletiq(barcode)
-    if not response:
-        return jsonify({"error": "Failed to get routing information"}), 500
-    
-    return jsonify({
-        "routing": {
-            "pusher": response["pusher_number"],
-            "label": "Unknown",
-            "distance": response["distance"]
-        }
-    })
+    try:
+        response = request_palletiq_sync(barcode)
+        if not response:
+            return jsonify({"error": "Failed to get routing information"}), 500
+        
+        return jsonify({
+            "routing": {
+                "pusher": response.get("pusher_number", 8),
+                "label": response.get("label", "Unknown"),
+                "distance": response.get("distance", 0)
+            }
+        })
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ Error in /scan endpoint for barcode {barcode}: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
 
 @scan_bp.route('/get-location', methods=['GET'])
 def get_location():
@@ -48,37 +54,25 @@ def get_active_items():
     try:
         from app import book_dict, book_dict_lock
     except ImportError:
-        return jsonify({"items": [], "count": 0, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")})
+        return jsonify({"items": {}, "count": 0, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")})
     
     try:
         with book_dict_lock:
-            items = []
-            for barcode, item_data in book_dict.items():
-                position = item_data.get("position", 0)
-                distance = item_data.get("distance", 1)
-                
-                items.append({
-                    "barcode": barcode,
-                    "position": position,
-                    "pusher": item_data.get("pusher"),
-                    "distance": distance,
-                    "label": item_data.get("label", "Unknown"),
-                    "photo_eye": item_data.get("photo_eye"),
-                    "created_at": item_data.get("created_at", time.strftime("%Y-%m-%d %H:%M:%S"))
-                })
-        
-        return jsonify({
-            "items": items,
-            "count": len(items),
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-        })
+            return jsonify({
+                "items": book_dict,
+                "count": len(book_dict),
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+            })
     except Exception as e:
-        return jsonify({"items": [], "count": 0, "error": str(e), "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")})
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ Error in /active-items endpoint: {e}", exc_info=True)
+        return jsonify({"items": {}, "count": 0, "error": str(e), "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")})
 
 @scan_bp.route('/mark-item-routed', methods=['POST'])
 def mark_item_routed():
     try:
-        from app import book_dict, book_dict_lock, broadcast_active_items
+        from app import book_dict, book_dict_lock, broadcast_book_dict
     except ImportError:
         return jsonify({"success": False, "error": "App not available"}), 500
     
@@ -92,11 +86,14 @@ def mark_item_routed():
         with book_dict_lock:
             if barcode in book_dict:
                 del book_dict[barcode]
-                broadcast_active_items()
+                broadcast_book_dict()
                 return jsonify({"success": True})
         
         return jsonify({"success": False, "error": "Item not found"}), 404
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ Error in /mark-item-routed endpoint for barcode {barcode}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 @scan_bp.route('/test-integration', methods=['GET'])

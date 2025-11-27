@@ -173,22 +173,6 @@ def cleanup_modbus():
     except Exception:
         pass
 
-def read_belt_speed():
-    BELT_SPEED_ADDRESS = int(os.getenv("BELT_SPEED_REGISTER", "0x0020"), 16)
-
-    with modbus_lock:
-        try:
-            result = plc.read_input_registers(BELT_SPEED_ADDRESS, count=1)
-            if not result.isError() and result.registers:
-                speed_raw = result.registers[0]
-                speed_cm_per_sec = speed_raw / 10.0
-                return speed_cm_per_sec
-        except Exception as e:
-            print(f"⚠️ Could not read belt speed from PLC: {e}")
-            return None
-
-    return None
-
 def float_to_registers(value):
     packed = struct.pack('>f', float(value))
     return struct.unpack('>HH', packed)
@@ -228,16 +212,10 @@ def write_settings(settings=None):
 
     load_settings()
 
-def write_bucket(value, pusher, scan_id=None):
-    try:
-        value = int(value)
-        pusher = int(pusher)
-    except (TypeError, ValueError):
-        print(f"❌ Invalid bucket value or pusher: value={value}, pusher={pusher}")
-        return -1
-
+def write_bucket(value, pusher):
+    
     if not (101 <= value <= 150):
-        print(f"❌ Invalid bucket value: {value}")
+        print(f"❌ Invalid bucket value: {value}. Must be between 101 and 150.")
         return -1
 
     register_address = 0x0064 + (value - 101)
@@ -245,26 +223,18 @@ def write_bucket(value, pusher, scan_id=None):
 
     pusher_key = f"Pusher {pusher}"
     if pusher_key not in SETTINGS:
-        print(f"❌ Pusher {pusher} not found in settings")
+        print(f"❌ Pusher {pusher} not found in settings.json")
         return -1
 
     with modbus_lock:
-        if plc is None:
-            return -1
         try:
-            plc.write_register(register_address, pusher, unit=UNIT_ID)
-            plc.write_register(register_ref, value, unit=UNIT_ID)
+            plc.write_register(register_address, pusher)
+            plc.write_register(register_ref, value)
+
             print(f"✅ Updated register 0x{register_ref:04X} with {value}")
             print(f"✅ Wrote pusher {pusher} to register 0x{register_address:04X}")
-            if scan_id is not None:
-                scan_id_register = 0x0014
-                try:
-                    plc.write_register(scan_id_register, scan_id, unit=UNIT_ID)
-                except Exception:
-                    pass
         except Exception as e:
-            print(f"❌ Error writing bucket: {e}")
-            return -1
+            print(f"❌ Modbus write error: {e}")
 
     return 1
 
@@ -299,6 +269,8 @@ def _photo_eye_monitor_loop():
     global _photo_eye_last_value, _photo_eye_monitor_running
     _photo_eye_last_value = 0
     
+    positionId = 0
+    
     while _photo_eye_monitor_running:
         try:
             current_value = read_photo_eye()
@@ -307,9 +279,23 @@ def _photo_eye_monitor_loop():
                 with _photo_eye_callbacks_lock:
                     callbacks = _photo_eye_callbacks.copy()
                 
+                positionId = 0
+                with modbus_lock:
+                    if plc is not None:
+                        try:
+                            result = plc.read_input_registers(0x0015, count=1)
+                            if result and not result.isError() and result.registers:
+                                positionId = result.registers[0]
+                            else:
+                                print(f"❌ Error reading position ID from 0x0015")
+                                positionId = 0
+                        except Exception as e:
+                            print(f"❌ Exception reading position ID: {e}")
+                            positionId = 0
+                
                 for callback in callbacks:
                     try:
-                        threading.Thread(target=callback, args=(), daemon=True).start()
+                        threading.Thread(target=callback, args=(positionId,), daemon=True).start()
                     except:
                         pass
             

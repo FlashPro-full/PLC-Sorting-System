@@ -29,10 +29,13 @@ class ConveyorSystem3D {
         this.photoEyeDetectionZone = null; // Track items in photo eye zone
         this.animationId = null;
         this.conveyorSpeed = 0.02;
+        this.beltSpeedCmPerSec = 32.1; // Belt speed in cm/s
         this.settings = null;
         this.positionIdToZ = this.calculatePositionMapping(); // Cache position ID to Z mapping
         this.lastFrameTime = performance.now(); // For delta-time calculations
         this.frameCount = 0;
+        this.positionIdToCm = {}; // Cache position ID to cm mapping
+        this.calculatePositionIdToCm();
         
         try {
             this.init();
@@ -946,6 +949,7 @@ class ConveyorSystem3D {
 
         // Recalculate position mapping when settings change
         this.positionIdToZ = this.calculatePositionMapping();
+        this.calculatePositionIdToCm();
 
         this.pushers.forEach((pusher, index) => {
             const pusherNumber = index + 1;
@@ -999,42 +1003,51 @@ class ConveyorSystem3D {
         this.frameCount++;
         
         this.animationId = requestAnimationFrame(() => this.animate());
-
-        // ULTRA-SMOOTH: Continuous movement with velocity-based interpolation
+        
+        // Move items continuously at belt speed (32.1 cm/s) based on start_time
         const itemsLength = this.items.length;
         for (let i = 0; i < itemsLength; i++) {
             const item = this.items[i];
             
             // Skip items that are being pushed (they have their own animation)
-            if (item.userData.beingPushed) continue;
+            if (item.userData.beingPushed || item.userData.routed) continue;
             
-            // If item has position_id, it's being tracked - use ultra-smooth interpolation
-            if (item.userData.position_id) {
-                const currentPosId = item.userData.position_id;
-                const targetZ = this.positionIdToZ[currentPosId];
-                
-                if (targetZ !== undefined) {
-                    const currentZ = item.position.z;
-                    const distance = targetZ - currentZ;
-                    const absDistance = Math.abs(distance);
+            // Calculate current position from start_time using belt_speed
+            if (item.userData.start_time) {
+                const currentPosition = this.calculatePositionFromStartTime(item.userData.start_time);
+                if (currentPosition !== null) {
+                    // Calculate Z position from current position in cm
+                    let maxPusherDistance = 972;
+                    if (this.settings) {
+                        const distances = Object.values(this.settings).map(p => p.distance || 0);
+                        maxPusherDistance = Math.max(...distances, 972);
+                    }
+                    const startBuffer = 200;
+                    const totalLength = startBuffer + maxPusherDistance + 200;
+                    const conveyorStart = -totalLength / 2;
+                    const targetZ = conveyorStart + startBuffer + currentPosition;
                     
-                    // ULTRA-SMOOTH: Maximum lerp factor (0.95) for extremely smooth movement
-                    // This creates continuous, fluid motion between position updates
-                    if (absDistance > 0.005) {  // Reduced threshold for even smoother transitions
-                        // Maximum lerp: 95% per frame = ultra-smooth, continuous movement
-                        // Higher lerp = smoother but slower convergence
-                        const lerpFactor = 0.95;  // Increased from 0.9 to 0.95 for smoother movement
-                        item.position.z = currentZ + distance * lerpFactor;
+                    // Smooth interpolation to target position
+                    const currentZ = item.position.z;
+                    const distanceToTarget = targetZ - currentZ;
+                    const absDistance = Math.abs(distanceToTarget);
+                    
+                    if (absDistance > 0.01) {
+                        // Smooth lerp for smooth movement
+                        const lerpFactor = 0.15; // Adjust for smoothness
+                        item.position.z = currentZ + (distanceToTarget * lerpFactor);
                     } else {
-                        // Snap when very close for precision (reduced threshold)
                         item.position.z = targetZ;
                     }
-                }
-                
-                // Check if item reached end of conveyor (position 150 = end)
-                if (currentPosId >= 150 && !item.userData.routed) {
-                    item.userData.routed = true;
-                    setTimeout(() => this.removeItem(item), 200);
+                    
+                    // Update position in cm for display (table will update via its own animation loop)
+                    item.userData.positionCm = currentPosition;
+                    
+                    // Check if item reached end of conveyor
+                    if (currentPosition >= maxPusherDistance + 200 && !item.userData.routed) {
+                        item.userData.routed = true;
+                        setTimeout(() => this.removeItem(item), 200);
+                    }
                 }
             }
         }
@@ -1137,6 +1150,38 @@ class ConveyorSystem3D {
         return mapping;
     }
 
+    calculatePositionFromStartTime(startTime) {
+        // Calculate current position from start_time using belt_speed=32.1 cm/s
+        // startTime is in seconds (Python time.time() format)
+        if (!startTime) return null;
+        const now = Date.now() / 1000; // Current time in seconds
+        const elapsed = now - startTime;
+        if (elapsed < 0) return 0; // Don't allow negative positions
+        return elapsed * this.beltSpeedCmPerSec; // Position in cm
+    }
+
+    calculatePositionIdToCm() {
+        // Calculate real position in cm for each position ID (101-150)
+        // PositionId 101 = 0cm (start), PositionId 150 = end
+        // Assuming positionId maps linearly to conveyor length
+        const POSITION_ID_MIN = 101;
+        const POSITION_ID_MAX = 150;
+        
+        // Get conveyor dimensions
+        let maxPusherDistance = 972;
+        if (this.settings) {
+            const distances = Object.values(this.settings).map(p => p.distance || 0);
+            maxPusherDistance = Math.max(...distances, 972);
+        }
+        
+        // Map position IDs to cm (linear mapping)
+        for (let posId = POSITION_ID_MIN; posId <= POSITION_ID_MAX; posId++) {
+            const normalized = (posId - POSITION_ID_MIN) / (POSITION_ID_MAX - POSITION_ID_MIN);
+            const positionCm = normalized * maxPusherDistance;
+            this.positionIdToCm[posId] = positionCm;
+        }
+    }
+
     updateItemFromPositionId(item, positionId) {
         // Update item's Z position based on position ID with ultra-smooth interpolation
         // This is called when position ID changes, but animation loop handles continuous movement
@@ -1161,6 +1206,8 @@ class ConveyorSystem3D {
         }
         return false;
     }
+
+    // Position display is now handled by script.js animation loop for synchronization
 
     setupEventListeners() {
         // Listen for scan events
@@ -1212,18 +1259,13 @@ class ConveyorSystem3D {
                     return; // Skip this item
                 }
                 
-                const oldPositionId = item.userData.position_id;
-                
-                // OPTIMIZED: Only update if position actually changed
-                if (oldPositionId !== trackedItem.position_id) {
-                    item.userData.position_id = trackedItem.position_id;
-                    // Animation loop will handle smooth movement automatically
-                }
+                // Update item data from tracked item
+                item.userData.start_time = trackedItem.start_time;
+                item.userData.distance = trackedItem.distance;
+                item.userData.status = trackedItem.status;
                 item.userData.label = trackedItem.label;
                 item.userData.pusher = trackedItem.pusher;
-                item.userData.pusher_distance = trackedItem.pusher_distance;
-                item.userData.pusher_position_id = trackedItem.pusher_position_id || null;
-                item.userData.near_pusher = trackedItem.near_pusher || false;
+                item.userData.positionId = trackedItem.positionId;
                 // Initialize pusherActivated if not already set
                 if (item.userData.pusherActivated === undefined) {
                     item.userData.pusherActivated = false;
@@ -1237,116 +1279,97 @@ class ConveyorSystem3D {
                 // Photo eye should detect when item REACHES the photo eye position (105), not before
                 if (this.photoEye && !item.userData.photoEyeDetected) {
                     const photoEyePosId = this.photoEye.userData.positionId || 105;
+                    const currentPosId = trackedItem.positionId;
                     // Trigger detection when item reaches or just passes photo eye position
                     // Use >= to ensure we detect when item reaches position 105
-                    if (trackedItem.position_id >= photoEyePosId && trackedItem.position_id <= photoEyePosId + 1) {
+                    if (currentPosId >= photoEyePosId && currentPosId <= photoEyePosId + 1) {
                         // Item has reached photo eye position - trigger detection
                         this.triggerPhotoEyeDetection(item);
                         item.userData.photoEyeDetected = true;
-                        console.log(`👁️ Photo eye detected item ${trackedItem.barcode} at position ${trackedItem.position_id} (photo eye at ${photoEyePosId})`);
+                        console.log(`👁️ Photo eye detected item ${trackedItem.barcode} at position ${currentPosId} (photo eye at ${photoEyePosId})`);
                     }
                 }
                 
-                // Check if item is approaching pusher position and should activate pusher
-                // Use position IDs directly (not distance-based calculations)
-                if (trackedItem.pusher_position_id && trackedItem.pusher) {
-                    const positionDiff = trackedItem.pusher_position_id - trackedItem.position_id;
-                    
-                    // FIXED: Activate pusher when item is 1-2 positions BEFORE pusher (not 4-5)
-                    // This ensures pusher activates just before book reaches it, not too early
-                    // positionDiff = pusher_pos - item_pos
-                    // When item is 2 positions before: positionDiff = 2
-                    // When item is 1 position before: positionDiff = 1
-                    if (positionDiff >= 1 && positionDiff <= 2 && !item.userData.pusherActivated) {
-                        this.activatePusher(trackedItem.pusher);
-                        item.userData.pusherActivated = true;
-                        console.log(`🔧 Pusher ${trackedItem.pusher} activated (item at ${trackedItem.position_id}, pusher at ${trackedItem.pusher_position_id}, diff: ${positionDiff})`);
-                    }
-                    
-                    // Check if item is at the pusher position and should be pushed
-                    // Push when item reaches pusher (positionDiff = 0 or very close)
-                    // positionDiff = 0 means item is exactly at pusher
-                    // positionDiff = 0.1 means item is very close (within 0.1 step interval)
-                    // positionDiff < 0 means item has passed pusher (too late!)
-                    // Account for smaller step interval (0.1 instead of 0.2)
-                    if (positionDiff >= -0.1 && positionDiff <= 0.3 && !item.userData.beingPushed && !item.userData.routed) {
-                        // Item is at or just reached pusher position - push IMMEDIATELY
+                // Handle bucket falling logic based on status
+                if (trackedItem.status === "progress" && trackedItem.distance && trackedItem.pusher) {
+                    // Status "progress": fall into corresponding bucket when position >= distance
+                    const currentPosition = this.calculatePositionFromStartTime(trackedItem.start_time);
+                    if (currentPosition !== null && currentPosition >= trackedItem.distance && !item.userData.beingPushed && !item.userData.routed) {
                         item.userData.beingPushed = true;
                         item.userData.routed = true;
                         
-                        console.log(`📦 Pushing item ${trackedItem.barcode} at pusher ${trackedItem.pusher} (item at ${trackedItem.position_id}, pusher at ${trackedItem.pusher_position_id}, diff: ${positionDiff})`);
+                        console.log(`📦 Pushing item ${barcode} into bucket ${trackedItem.pusher} (position: ${currentPosition.toFixed(1)}cm >= distance: ${trackedItem.distance}cm)`);
+                        
+                        // Activate pusher
+                        this.activatePusher(trackedItem.pusher);
                         
                         // Mark item as routed in backend
                         fetch('/mark-item-routed', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ barcode: trackedItem.barcode })
+                            body: JSON.stringify({ barcode: barcode })
                         }).catch(err => console.error('Failed to mark item as routed:', err));
                         
                         // Start pushing animation: move to side and fall into bucket
                         this.pushItemIntoBucket(item, trackedItem.pusher);
                     }
-                    
-                    // Also check if item reached end of conveyor (position 150)
-                    if (trackedItem.position_id >= 150 && !item.userData.routed && !item.userData.beingPushed) {
+                } else if (trackedItem.status === "pending") {
+                    // Status "pending": fall into latest bucket (pusher 8)
+                    const latestPusher = 8;
+                    if (!item.userData.beingPushed && !item.userData.routed) {
+                        item.userData.beingPushed = true;
                         item.userData.routed = true;
-                        // Remove item when it reaches the end of the belt
-                        setTimeout(() => {
-                            this.removeItem(item);
-                        }, 200);
+                        
+                        console.log(`📦 Pushing pending item ${barcode} into latest bucket (pusher ${latestPusher})`);
+                        
+                        // Activate pusher
+                        this.activatePusher(latestPusher);
+                        
+                        // Mark item as routed in backend
+                        fetch('/mark-item-routed', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ barcode: barcode })
+                        }).catch(err => console.error('Failed to mark item as routed:', err));
+                        
+                        // Start pushing animation: move to side and fall into bucket
+                        this.pushItemIntoBucket(item, latestPusher);
                     }
                 }
             } else {
-                // Create new item at the correct position based on its position_id
-                // BUT: Don't create items that are already at the end (position 150) or beyond
-                // These are likely items that were routed but still in tracking
-                if (trackedItem.position_id >= 150) {
-                    console.log(`⏭️ Skipping creation of item at end position: ${trackedItem.barcode} (position ${trackedItem.position_id})`);
-                    return; // Skip creating items that are already at the end
+                // Create new item - calculate initial position from start_time
+                const currentPosition = this.calculatePositionFromStartTime(trackedItem.start_time);
+                if (currentPosition === null) {
+                    console.log(`⏭️ Skipping creation of item without start_time: ${barcode}`);
+                    return;
                 }
                 
-                // CRITICAL: Use the actual position_id to get the correct Z coordinate
-                // This ensures synchronization - item appears where it actually is
-                let zPosition;
-                if (this.positionIdToZ[trackedItem.position_id] !== undefined) {
-                    zPosition = this.positionIdToZ[trackedItem.position_id];
-                } else {
-                    // Fallback: calculate position from position_id if mapping not ready
-                    let maxPusherDistance = 972;
-                    if (this.settings) {
-                        const distances = Object.values(this.settings).map(p => p.distance || 0);
-                        maxPusherDistance = Math.max(...distances, 972);
-                    }
-                    const startBuffer = 200;
-                    const totalLength = startBuffer + maxPusherDistance + 200;
-                    const conveyorStart = -totalLength / 2;
-                    const conveyorEnd = totalLength / 2;
-                    const normalized = (trackedItem.position_id - 101) / (150 - 101);
-                    zPosition = conveyorStart + (normalized * (conveyorEnd - conveyorStart));
+                // Calculate Z position from current position in cm
+                let maxPusherDistance = 972;
+                if (this.settings) {
+                    const distances = Object.values(this.settings).map(p => p.distance || 0);
+                    maxPusherDistance = Math.max(...distances, 972);
                 }
+                const startBuffer = 200;
+                const totalLength = startBuffer + maxPusherDistance + 200;
+                const conveyorStart = -totalLength / 2;
+                const zPosition = conveyorStart + startBuffer + currentPosition;
                 
                 const item = this.createItem(trackedItem.barcode, zPosition);
-                console.log(`📦 Created item ${trackedItem.barcode} at position ${trackedItem.position_id} (Z: ${zPosition.toFixed(1)})`);
+                console.log(`📦 Created item ${barcode} at position ${currentPosition.toFixed(1)}cm (Z: ${zPosition.toFixed(1)})`);
                 
                 // Store metadata
-                item.userData.position_id = trackedItem.position_id;
+                item.userData.start_time = trackedItem.start_time;
+                item.userData.distance = trackedItem.distance;
+                item.userData.status = trackedItem.status;
                 item.userData.label = trackedItem.label;
                 item.userData.pusher = trackedItem.pusher;
-                item.userData.pusher_distance = trackedItem.pusher_distance;
-                item.userData.pusher_position_id = trackedItem.pusher_position_id || null;
-                item.userData.near_pusher = trackedItem.near_pusher || false;
+                item.userData.positionId = trackedItem.positionId;
                 item.userData.routed = false;
-                item.userData.pusherActivated = false; // Track if pusher has been activated for this item
-                item.userData.beingPushed = false; // Track if item is currently being pushed into bucket
-                item.userData.photoEyeDetected = false; // Track if photo eye has detected this item
-                
-                // Check if item starts near photo eye
-                if (this.photoEye) {
-                    const photoEyePosId = this.photoEye.userData.positionId || 105;
-                    if (Math.abs(trackedItem.position_id - photoEyePosId) <= 2) {
-                        item.userData.photoEyeDetected = true; // Already past photo eye
-                    }
-                }
+                item.userData.pusherActivated = false;
+                item.userData.beingPushed = false;
+                item.userData.photoEyeDetected = false;
+                item.userData.positionCm = currentPosition;
                 
                 // Store reference
                 this.itemsByBarcode[barcode] = item;

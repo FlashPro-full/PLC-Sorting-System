@@ -1,0 +1,19 @@
+# Flask and WebSocket
+flask>=2.3.0
+flask-socketio>=5.3.0
+
+# Async HTTP client
+aiohttp>=3.9.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Modbus communication
+pymodbus>=3.6.0
+
+# Serial communication for barcode scanner
+pyserial>=3.5
+
+# Keyboard input (for keyboard mode barcode scanning)
+pynput>=1.7.6
+
