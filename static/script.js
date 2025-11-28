@@ -109,8 +109,11 @@ function updateActiveItemsTableFromData(data) {
                 const timeStr = item.created_at || new Date().toLocaleTimeString();
                 
                 let positionCm = "0.0 cm";
-                if (item.start_time) {
-                    const position = calculateCurrentPosition(item.start_time, BELT_SPEED);
+                if (item.positionCm !== undefined && item.positionCm !== null) {
+                    positionCm = parseFloat(item.positionCm).toFixed(1) + " cm";
+                } else if (item.start_time) {
+                    const startTime = typeof item.start_time === 'string' ? parseFloat(item.start_time) : item.start_time;
+                    const position = calculateCurrentPosition(startTime, BELT_SPEED);
                     if (position !== null) {
                         positionCm = position.toFixed(1) + " cm";
                     }
@@ -268,18 +271,27 @@ function updateTablePositions() {
         if (!barcode) return;
         
         const item = frontendItems.get(barcode);
-        if (!item || !item.start_time) return;
+        if (!item) return;
         
-        const elapsed = currentTime - item.start_time;
-        if (elapsed < 0) return;
+        let currentPosition = null;
         
-        const currentPosition = elapsed * BELT_SPEED;
+        if (item.positionCm !== undefined && item.positionCm !== null) {
+            currentPosition = parseFloat(item.positionCm);
+        } else if (item.start_time) {
+            const startTime = typeof item.start_time === 'string' ? parseFloat(item.start_time) : item.start_time;
+            const elapsed = currentTime - startTime;
+            if (elapsed >= 0) {
+                currentPosition = elapsed * BELT_SPEED;
+            }
+        }
         
-        const positionCell = row.querySelector('td[data-position-id]');
-        if (positionCell) {
-            const displaySpan = positionCell.querySelector('.position-cm-display');
-            if (displaySpan) {
-                displaySpan.textContent = currentPosition.toFixed(1) + " cm";
+        if (currentPosition !== null) {
+            const positionCell = row.querySelector('td[data-position-id]');
+            if (positionCell) {
+                const displaySpan = positionCell.querySelector('.position-cm-display');
+                if (displaySpan) {
+                    displaySpan.textContent = currentPosition.toFixed(1) + " cm";
+                }
             }
         }
     });
@@ -321,7 +333,6 @@ document.addEventListener("DOMContentLoaded", () => {
             
             socket.on('book_dict_update', (bookDict) => {
                 console.log("📡 WebSocket 'book_dict_update' event received");
-                frontendItems.clear();
                 if (bookDict && typeof bookDict === 'object') {
                     for (const [barcode, itemData] of Object.entries(bookDict)) {
                         if (barcode && itemData) {
@@ -330,11 +341,24 @@ document.addEventListener("DOMContentLoaded", () => {
                                 ...itemData
                             };
                             if (itemData.start_time) {
-                                item.start_time = itemData.start_time;
+                                item.start_time = typeof itemData.start_time === 'string' ? parseFloat(itemData.start_time) : itemData.start_time;
+                            }
+                            if (itemData.positionCm !== undefined && itemData.positionCm !== null) {
+                                item.positionCm = typeof itemData.positionCm === 'string' ? parseFloat(itemData.positionCm) : itemData.positionCm;
                             }
                             frontendItems.set(barcode, item);
                         }
                     }
+                    
+                    const removedBarcodes = [];
+                    frontendItems.forEach((item, barcode) => {
+                        if (!bookDict[barcode]) {
+                            removedBarcodes.push(barcode);
+                        }
+                    });
+                    removedBarcodes.forEach(barcode => frontendItems.delete(barcode));
+                } else {
+                    frontendItems.clear();
                 }
                 updateActiveItemsTableFromFrontendItems();
                 

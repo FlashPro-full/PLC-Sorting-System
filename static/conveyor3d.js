@@ -1012,10 +1012,14 @@ class ConveyorSystem3D {
             // Skip items that are being pushed (they have their own animation)
             if (item.userData.beingPushed || item.userData.routed) continue;
             
-            // Calculate current position from start_time using belt_speed
-            if (item.userData.start_time) {
-                const currentPosition = this.calculatePositionFromStartTime(item.userData.start_time);
-                if (currentPosition !== null) {
+            // Calculate current position - prefer stored positionCm, otherwise calculate from start_time
+            let currentPosition = null;
+            if (item.userData.positionCm !== undefined && item.userData.positionCm !== null) {
+                currentPosition = item.userData.positionCm;
+            } else if (item.userData.start_time) {
+                currentPosition = this.calculatePositionFromStartTime(item.userData.start_time);
+            }
+            if (currentPosition !== null) {
                     // Calculate Z position from current position in cm
                     let maxPusherDistance = 972;
                     if (this.settings) {
@@ -1266,6 +1270,9 @@ class ConveyorSystem3D {
                 item.userData.label = trackedItem.label;
                 item.userData.pusher = trackedItem.pusher;
                 item.userData.positionId = trackedItem.positionId;
+                if (trackedItem.positionCm !== undefined && trackedItem.positionCm !== null) {
+                    item.userData.positionCm = typeof trackedItem.positionCm === 'string' ? parseFloat(trackedItem.positionCm) : trackedItem.positionCm;
+                }
                 // Initialize pusherActivated if not already set
                 if (item.userData.pusherActivated === undefined) {
                     item.userData.pusherActivated = false;
@@ -1293,7 +1300,12 @@ class ConveyorSystem3D {
                 // Handle bucket falling logic based on status
                 if (trackedItem.status === "progress" && trackedItem.distance && trackedItem.pusher) {
                     // Status "progress": fall into corresponding bucket when position >= distance
-                    const currentPosition = this.calculatePositionFromStartTime(trackedItem.start_time);
+                    let currentPosition = null;
+                    if (trackedItem.positionCm !== undefined && trackedItem.positionCm !== null) {
+                        currentPosition = typeof trackedItem.positionCm === 'string' ? parseFloat(trackedItem.positionCm) : trackedItem.positionCm;
+                    } else {
+                        currentPosition = this.calculatePositionFromStartTime(trackedItem.start_time);
+                    }
                     if (currentPosition !== null && currentPosition >= trackedItem.distance && !item.userData.beingPushed && !item.userData.routed) {
                         item.userData.beingPushed = true;
                         item.userData.routed = true;
@@ -1337,10 +1349,15 @@ class ConveyorSystem3D {
                     }
                 }
             } else {
-                // Create new item - calculate initial position from start_time
-                const currentPosition = this.calculatePositionFromStartTime(trackedItem.start_time);
+                // Create new item - use positionCm from backend if available, otherwise calculate from start_time
+                let currentPosition = null;
+                if (trackedItem.positionCm !== undefined && trackedItem.positionCm !== null) {
+                    currentPosition = typeof trackedItem.positionCm === 'string' ? parseFloat(trackedItem.positionCm) : trackedItem.positionCm;
+                } else if (trackedItem.start_time) {
+                    currentPosition = this.calculatePositionFromStartTime(trackedItem.start_time);
+                }
                 if (currentPosition === null) {
-                    console.log(`⏭️ Skipping creation of item without start_time: ${barcode}`);
+                    console.log(`⏭️ Skipping creation of item without positionCm or start_time: ${barcode}`);
                     return;
                 }
                 

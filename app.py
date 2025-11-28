@@ -24,9 +24,6 @@ belt_speed = 32.1
 _tracking_thread = None
 _tracking_running = False
 
-_virtual_signal_thread = None
-_virtual_signal_running = False
-_virtual_signal_counter = 0
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
@@ -200,61 +197,6 @@ def stop_tracking():
     global _tracking_running
     _tracking_running = False
 
-def _virtual_signal_loop():
-    global _virtual_signal_running, _virtual_signal_counter
-    
-    interval = 0.5
-    prefix = "BOOK"
-    base_position = 101
-    total_signals = 50
-    
-    signal_count = 0
-    
-    while _virtual_signal_running and signal_count < total_signals:
-        try:
-            signal_count += 1
-            
-            if signal_count % 2 == 1:
-                _virtual_signal_counter += 1
-                barcode = f"{prefix}{_virtual_signal_counter:03d}"
-                positionId = base_position + ((_virtual_signal_counter - 1) % 10)
-                
-                on_barcode_scanned(barcode)
-            else:
-                on_photo_eye_triggered(positionId)
-            
-            if signal_count < total_signals:
-                time.sleep(interval)
-            
-        except KeyboardInterrupt:
-            _virtual_signal_running = False
-            break
-        except Exception:
-            time.sleep(interval)
-    
-    _virtual_signal_running = False
-
-def start_virtual_signals():
-    global _virtual_signal_thread, _virtual_signal_running
-    
-    if _virtual_signal_thread is None or not _virtual_signal_thread.is_alive():
-        _virtual_signal_running = True
-        _virtual_signal_thread = threading.Thread(target=_virtual_signal_loop, daemon=True, name="VirtualSignalGenerator")
-        _virtual_signal_thread.start()
-
-        def monitor_virtual_signals():
-            while True:
-                time.sleep(5)
-                if _virtual_signal_thread and not _virtual_signal_thread.is_alive() and _virtual_signal_running:
-                    start_virtual_signals()
-                    break
-        
-        monitor_thread = threading.Thread(target=monitor_virtual_signals, daemon=True, name="VirtualSignalMonitor")
-        monitor_thread.start()
-
-def stop_virtual_signals():
-    global _virtual_signal_running
-    _virtual_signal_running = False
 
 def broadcast_system_status():
     try:
