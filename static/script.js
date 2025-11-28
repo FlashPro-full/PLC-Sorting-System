@@ -1,5 +1,3 @@
-
-// Update active items table from frontend items storage
 function updateActiveItemsTableFromFrontendItems() {
     const items = Array.from(frontendItems.values());
     const data = {
@@ -10,20 +8,32 @@ function updateActiveItemsTableFromFrontendItems() {
     updateActiveItemsTableFromData(data);
 }
 
-// Calculate current position from start_time using belt_speed
 function calculateCurrentPosition(startTime, beltSpeed = 32.1) {
     if (!startTime) return null;
-    const now = Date.now() / 1000; // Convert to seconds
+    const now = Date.now() / 1000;
     const elapsed = now - startTime;
-    return elapsed * beltSpeed; // Position in cm
+    return elapsed * beltSpeed;
 }
 
-// Update active items table from WebSocket data (no HTTP request needed)
 function updateActiveItemsTableFromData(data) {
     console.log("📊 updateActiveItemsTableFromData() called");
+    
+    let items = [];
+    if (data.items) {
+        if (Array.isArray(data.items)) {
+            items = data.items;
+        } else if (typeof data.items === 'object') {
+            items = Object.entries(data.items).map(([barcode, itemData]) => ({
+                barcode: barcode,
+                ...itemData
+            }));
+        }
+    }
+    
+    const itemCount = items.length;
     console.log("📊 Data received:", {
-        itemCount: data.count,
-        items: data.items,
+        itemCount: itemCount,
+        items: items,
         timestamp: data.timestamp
     });
     
@@ -37,15 +47,13 @@ function updateActiveItemsTableFromData(data) {
     
     if (!tbody) return;
     
-    if (data.items && data.items.length > 0) {
-        // Clear any initial "Waiting for items..." rows that don't have barcode
+    if (items && items.length > 0) {
         Array.from(tbody.children).forEach(row => {
             if (!row.dataset.barcode) {
                 row.remove();
             }
         });
         
-        // Track existing rows by barcode to update/remove them
         const existingRows = {};
         Array.from(tbody.children).forEach(row => {
             const barcode = row.dataset.barcode;
@@ -54,14 +62,11 @@ function updateActiveItemsTableFromData(data) {
             }
         });
         
-        // Track which items are still active
-        const activeBarcodes = new Set(data.items.map(item => item.barcode));
+        const activeBarcodes = new Set(items.map(item => item.barcode));
         
-        // Remove rows for items that are no longer in the list (routed/removed)
         Object.keys(existingRows).forEach(barcode => {
             if (!activeBarcodes.has(barcode)) {
                 const row = existingRows[barcode];
-                // Add fade-out animation
                 row.style.transition = "opacity 0.3s ease-out";
                 row.style.opacity = "0";
                 setTimeout(() => {
@@ -73,54 +78,48 @@ function updateActiveItemsTableFromData(data) {
             }
         });
         
-                // Add or update rows for each item
-                console.log(`📊 Processing ${data.items.length} items for table`);
-                data.items.forEach((item, index) => {
-                    try {
-                        const barcode = item.barcode;
-                        if (!barcode) {
-                            console.warn(`⚠️ Item ${index} has no barcode, skipping`);
-                            return;
-                        }
-                        
-                        console.log(`📊 Item ${index + 1}/${data.items.length}:`, {
-                            barcode: barcode,
-                            positionId: item.positionId,
-                            label: item.label,
-                            pusher: item.pusher
-                        });
-                        let row = existingRows[barcode];
-                        
-                        if (!row) {
-                            // Create new row
-                            row = document.createElement("tr");
-                            row.dataset.barcode = barcode; // Store barcode for position updates
-                            row.style.borderBottom = "1px solid var(--border)";
-                            row.style.transition = "background 0.2s, opacity 0.3s";
-                            row.onmouseenter = () => row.style.background = "rgba(58, 122, 254, 0.05)";
-                            row.onmouseleave = () => row.style.background = "";
-                            tbody.appendChild(row);
-                            existingRows[barcode] = row;
-                        }
-                        
-                        // Format time
-                        const timeStr = item.created_at || new Date().toLocaleTimeString();
-                        
-                        // Initial position calculation (will be updated in real-time by animation loop)
-                        let positionCm = "0.0 cm";
-                        if (item.start_time) {
-                            const position = calculateCurrentPosition(item.start_time, BELT_SPEED);
-                            if (position !== null) {
-                                positionCm = position.toFixed(1) + " cm";
-                            }
-                        }
+        console.log(`📊 Processing ${items.length} items for table`);
+        items.forEach((item, index) => {
+            try {
+                const barcode = item.barcode;
+                if (!barcode) {
+                    console.warn(`⚠️ Item ${index} has no barcode, skipping`);
+                    return;
+                }
                 
-                // Get status with color coding
+                console.log(`📊 Item ${index + 1}/${items.length}:`, {
+                    barcode: barcode,
+                    positionId: item.positionId,
+                    label: item.label,
+                    pusher: item.pusher
+                });
+                let row = existingRows[barcode];
+                
+                if (!row) {
+                    row = document.createElement("tr");
+                    row.dataset.barcode = barcode;
+                    row.style.borderBottom = "1px solid var(--border)";
+                    row.style.transition = "background 0.2s, opacity 0.3s";
+                    row.onmouseenter = () => row.style.background = "rgba(58, 122, 254, 0.05)";
+                    row.onmouseleave = () => row.style.background = "";
+                    tbody.appendChild(row);
+                    existingRows[barcode] = row;
+                }
+                
+                const timeStr = item.created_at || new Date().toLocaleTimeString();
+                
+                let positionCm = "0.0 cm";
+                if (item.start_time) {
+                    const position = calculateCurrentPosition(item.start_time, BELT_SPEED);
+                    if (position !== null) {
+                        positionCm = position.toFixed(1) + " cm";
+                    }
+                }
+        
                 const status = item.status || "pending";
                 const statusColor = status === "progress" ? "#27ae60" : "#f39c12";
                 const statusBg = status === "progress" ? "rgba(39, 174, 96, 0.1)" : "rgba(243, 156, 18, 0.1)";
                 
-                // Get distance
                 const distance = item.distance !== undefined && item.distance !== null ? item.distance.toFixed(1) + " cm" : "N/A";
                 
                 row.innerHTML = `
@@ -159,12 +158,11 @@ function updateActiveItemsTableFromData(data) {
         });
         
         if (countSpan) {
-            countSpan.textContent = data.count;
+            countSpan.textContent = itemCount;
         }
         
-        // Dispatch event for 3D visualization update
         document.dispatchEvent(new CustomEvent('activeItemsUpdated', {
-            detail: { items: data.items }
+            detail: { items: items }
         }));
     } else {
         tbody.innerHTML = `
@@ -178,25 +176,18 @@ function updateActiveItemsTableFromData(data) {
             countSpan.textContent = "0";
         }
         
-        // Dispatch empty event
         document.dispatchEvent(new CustomEvent('activeItemsUpdated', {
             detail: { items: [] }
         }));
     }
 }
 
-// Real-time active items table (WebSocket only - no HTTP polling)
-// This function is kept as fallback only if WebSocket is not available
 async function updateActiveItemsTable() {
-    // Check if WebSocket is connected
     if (socket && socket.connected) {
-        // WebSocket is connected - data will come via WebSocket events
-        // No need to make HTTP request
-        console.log('📡 WebSocket connected - waiting for active_items_update event');
+        console.log('📡 WebSocket connected - waiting for book_dict_update event');
         return;
     }
     
-    // If socket is not initialized, try to initialize it
     if (!socket) {
         console.warn('⚠️ Socket not initialized, attempting to initialize...');
         try {
@@ -206,21 +197,23 @@ async function updateActiveItemsTable() {
         }
     }
     
-    // Fallback: Only use HTTP if WebSocket is not available
     console.warn('⚠️ WebSocket not connected - using HTTP fallback');
     try {
-        const response = await fetch("/active-items");
+        const response = await fetch("/book-dict");
         const data = await response.json();
-        updateActiveItemsTableFromData(data);
+        if (data.items) {
+            const items = Object.entries(data.items).map(([barcode, itemData]) => ({
+                barcode: barcode,
+                ...itemData
+            }));
+            updateActiveItemsTableFromData({ items: items, count: items.length, timestamp: data.timestamp });
+        }
     } catch (error) {
         console.error("Error updating active items table:", error);
     }
 }
 
-
-// Update system status from WebSocket data
 function updateSystemStatusFromData(status) {
-    // Update PLC status
     const plcStatus = document.getElementById("plc-status");
     if (plcStatus) {
         if (status.plc.connected) {
@@ -232,7 +225,6 @@ function updateSystemStatusFromData(status) {
         }
     }
     
-    // Update scanner status
     const scannerStatus = document.getElementById("scanner-status");
     if (scannerStatus) {
         if (status.scanner.connected) {
@@ -244,7 +236,6 @@ function updateSystemStatusFromData(status) {
         }
     }
     
-    // Update photo eye status
     const photoEyeStatus = document.getElementById("photo-eye-status");
     if (photoEyeStatus) {
         if (status.photo_eye.connected) {
@@ -257,19 +248,11 @@ function updateSystemStatusFromData(status) {
     }
 }
 
-
-// Global socket variable for WebSocket communication
 let socket = null;
-
-// Frontend items storage
 let frontendItems = new Map();
-
-// Real-time position update loop (synchronized with 3D animation)
 let positionUpdateAnimationId = null;
-const BELT_SPEED = 32.1; // cm/s - matches backend and conveyor3d.js
+const BELT_SPEED = 32.1;
 
-// Real-time position update function (runs every frame, synchronized with 3D)
-// Uses data received from backend via socket, but updates independently via timer
 function updateTablePositions() {
     const tbody = document.getElementById("active-items-tbody");
     if (!tbody) {
@@ -278,23 +261,20 @@ function updateTablePositions() {
     }
     
     const rows = Array.from(tbody.querySelectorAll("tr"));
-    const currentTime = Date.now() / 1000; // Current time in seconds
+    const currentTime = Date.now() / 1000;
     
     rows.forEach(row => {
         const barcode = row.dataset.barcode;
         if (!barcode) return;
         
-        // Get item data from frontendItems (populated from socket)
         const item = frontendItems.get(barcode);
-        if (!item || !item.start_time) return; // start_time comes from socket
+        if (!item || !item.start_time) return;
         
-        // Calculate current position from start_time (from socket) using belt_speed
         const elapsed = currentTime - item.start_time;
         if (elapsed < 0) return;
         
-        const currentPosition = elapsed * BELT_SPEED; // Position in cm
+        const currentPosition = elapsed * BELT_SPEED;
         
-        // Update position display in table
         const positionCell = row.querySelector('td[data-position-id]');
         if (positionCell) {
             const displaySpan = positionCell.querySelector('.position-cm-display');
@@ -304,11 +284,9 @@ function updateTablePositions() {
         }
     });
     
-    // Continue animation loop (synchronized with 3D, independent of socket)
     positionUpdateAnimationId = requestAnimationFrame(updateTablePositions);
 }
 
-// Start position update loop
 function startPositionUpdateLoop() {
     if (positionUpdateAnimationId === null) {
         console.log("✅ Starting real-time position update loop (synchronized with 3D)");
@@ -316,7 +294,6 @@ function startPositionUpdateLoop() {
     }
 }
 
-// Stop position update loop
 function stopPositionUpdateLoop() {
     if (positionUpdateAnimationId !== null) {
         cancelAnimationFrame(positionUpdateAnimationId);
@@ -328,55 +305,49 @@ function stopPositionUpdateLoop() {
 document.addEventListener("DOMContentLoaded", () => {
     console.log("🚀 Frontend initializing...");
     
-    // Initialize Socket.IO for real-time communication (replaces all HTTP polling)
     try {
         socket = io();
         console.log("✅ Socket.IO initialized");
         
-        // Socket.IO connection handlers (only set up if socket was created successfully)
         if (socket) {
             socket.on('connect', () => {
                 console.log('✅ WebSocket connected - real-time updates enabled');
                 console.log('📡 All data will be received via WebSocket (no HTTP polling)');
-                // System status will be sent automatically on connect (checked once at startup)
-                // Active items will be broadcast every 1 second via WebSocket
-                // No need to request initial data - it will come via WebSocket
             });
             
             socket.on('disconnect', () => {
                 console.log('⚠️ WebSocket disconnected - will reconnect automatically');
-                // WebSocket will reconnect automatically
-                // No fallback polling needed - just wait for reconnection
             });
             
-            // Listen for book_dict updates (sent on connect and periodically)
-            socket.on('update_book_dict', (data) => {
-                console.log("📡 WebSocket 'update_book_dict' event received");
+            socket.on('book_dict_update', (bookDict) => {
+                console.log("📡 WebSocket 'book_dict_update' event received");
                 frontendItems.clear();
-                if (data.items && typeof data.items === 'object') {
-                    // items is a dictionary where keys are barcodes
-                    Object.keys(data.items).forEach(barcode => {
-                        const item = { ...data.items[barcode], barcode: barcode };
-                        frontendItems.set(barcode, item);
-                    });
+                if (bookDict && typeof bookDict === 'object') {
+                    for (const [barcode, itemData] of Object.entries(bookDict)) {
+                        if (barcode && itemData) {
+                            const item = {
+                                barcode: barcode,
+                                ...itemData
+                            };
+                            if (itemData.start_time) {
+                                item.start_time = itemData.start_time;
+                            }
+                            frontendItems.set(barcode, item);
+                        }
+                    }
                 }
                 updateActiveItemsTableFromFrontendItems();
                 
-                // Dispatch event for 3D visualization
                 document.dispatchEvent(new CustomEvent('activeItemsUpdated', {
                     detail: { items: Array.from(frontendItems.values()) }
                 }));
             });
             
-            // Listen for system status updates (sent once on connect, not continuously)
             socket.on('system_status', (status) => {
                 console.log('📊 Received system status (checked once at startup)');
                 updateSystemStatusFromData(status);
             });
             
-            // Note: No HTTP polling - all updates come via WebSocket
-            // Backend broadcasts active items every 1 second via WebSocket
-            // Initial data will be sent when WebSocket connects
             console.log('✅ WebSocket communication enabled - no HTTP polling needed');
         } else {
             console.error("❌ Socket.IO failed to initialize - frontend will have limited functionality");
@@ -386,22 +357,15 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error("   Frontend will work but real-time updates may not function");
     }
 
-    // Integration test button
     const testBtn = document.getElementById("test-integration-btn");
     if (testBtn) {
         testBtn.addEventListener("click", runIntegrationTest);
     }
     
-    // Start real-time position update loop (independent of socket, synchronized with 3D)
     startPositionUpdateLoop();
     
     console.log("✅ Frontend initialization complete");
 });
-
-
-// System status is now received via WebSocket (checkSystemStatus function removed)
-// Status is sent once on WebSocket connect and cached on backend
-// No HTTP polling needed - updateSystemStatusFromData() handles WebSocket updates
 
 async function runIntegrationTest() {
     const testBtn = document.getElementById("test-integration-btn");
@@ -410,7 +374,6 @@ async function runIntegrationTest() {
     
     if (!testBtn || !testResultsDiv) return;
     
-    // Disable button and show loading
     testBtn.disabled = true;
     testBtn.textContent = "Running Tests...";
     testResultsCard.style.display = "block";
@@ -420,7 +383,6 @@ async function runIntegrationTest() {
         const response = await fetch("/test-integration");
         const results = await response.json();
         
-        // Format test results
         let html = `<div style="margin-bottom: 20px;">
             <h3 style="margin: 0 0 10px 0; color: ${results.overall_status === 'pass' ? '#27ae60' : results.overall_status === 'warning' ? '#f39c12' : '#e74c3c'};">
                 ${results.overall_status === 'pass' ? '✅' : results.overall_status === 'warning' ? '⚠️' : '❌'} 
@@ -456,7 +418,6 @@ async function runIntegrationTest() {
         
         testResultsDiv.innerHTML = html;
         
-        // Scroll to results
         testResultsCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         
     } catch (error) {

@@ -190,6 +190,7 @@ def connect_barcode_signal(callback):
     with _barcode_callbacks_lock:
         if callback not in _barcode_callbacks:
             _barcode_callbacks.append(callback)
+            print(f"✅ Registered barcode callback: {callback.__name__}", flush=True)
 
 def disconnect_barcode_signal(callback):
     with _barcode_callbacks_lock:

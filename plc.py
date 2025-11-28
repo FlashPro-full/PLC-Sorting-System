@@ -259,6 +259,7 @@ def connect_photo_eye_signal(callback):
     with _photo_eye_callbacks_lock:
         if callback not in _photo_eye_callbacks:
             _photo_eye_callbacks.append(callback)
+            print(f"✅ Registered photo eye callback: {callback.__name__}", flush=True)
 
 def disconnect_photo_eye_signal(callback):
     with _photo_eye_callbacks_lock:
