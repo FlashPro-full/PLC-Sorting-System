@@ -213,6 +213,7 @@ def write_settings(settings=None):
     load_settings()
 
 def write_bucket(value, pusher):
+    global plc
     
     if not (101 <= value <= 150):
         print(f"❌ Invalid bucket value: {value}. Must be between 101 and 150.")
@@ -227,14 +228,30 @@ def write_bucket(value, pusher):
         return -1
 
     with modbus_lock:
+        if plc is None:
+            print(f"❌ PLC not connected, attempting to reconnect...")
+            connect_plc()
+        
+        if plc is None:
+            print(f"❌ Modbus write error: PLC not connected")
+            return -1
+        
         try:
-            plc.write_register(register_address, pusher)
-            plc.write_register(register_ref, value)
+            if not is_plc_connected():
+                print(f"❌ PLC connection lost, attempting to reconnect...")
+                connect_plc()
+                if plc is None:
+                    print(f"❌ Modbus write error: Failed to reconnect PLC")
+                    return -1
+            
+            plc.write_register(register_address, pusher, unit=UNIT_ID)
+            plc.write_register(register_ref, value, unit=UNIT_ID)
 
             print(f"✅ Updated register 0x{register_ref:04X} with {value}")
             print(f"✅ Wrote pusher {pusher} to register 0x{register_address:04X}")
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
+            return -1
 
     return 1
 

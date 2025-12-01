@@ -5,8 +5,10 @@ import os
 import sys
 import time
 import threading
+import webbrowser
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict
+from collections import deque
 
 from routes.scan import scan_bp
 from routes.settings import settings_bp
@@ -17,13 +19,21 @@ from palletiq_api import request_palletiq_async, init_session, init_token
 
 load_dotenv()
 
+barcode_queue: deque = deque()
+palletiq_response_queue: deque = deque()
+queue_lock = threading.Lock()
+queue_items: Dict[str, dict] = {}
+
 book_dict: Dict[str, dict] = {}
 book_dict_lock = threading.Lock()
 
 belt_speed = 32.1
+max_distance = 972
 _tracking_thread = None
 _tracking_running = False
-
+_palletiq_tracking_thread = None
+_palletiq_tracking_running = False
+_test_signals_started = False
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
@@ -34,30 +44,35 @@ _pending_lock = threading.Lock()
 
 def on_barcode_scanned(barcode):
     scan_time = time.time()
-    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     
     with _pending_lock:
         if barcode in _pending_requests:
             return
         _pending_requests.add(barcode)
     
-    with book_dict_lock:
-        if barcode not in book_dict:
-            book_dict[barcode] = {
-                "start_time": scan_time,
-                "positionId": None,
-                "positionCm": None,
-                "pusher": None,
-                "label": None,
-                "distance": None,
-                "status": "pending",
-                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            }
+    item = {
+        "barcode": barcode,
+        "start_time": scan_time,
+        "positionId": None,
+        "positionCm": None,
+        "pusher": None,
+        "label": None,
+        "distance": None,
+        "status": "pending",
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    
+    with queue_lock:
+        barcode_queue.append(item)
+        queue_items[barcode] = item
     
     def on_success(response):
         with _pending_lock:
             _pending_requests.discard(barcode)
-        on_palletiq_response(barcode, response)
+        if response:
+            on_palletiq_response(barcode, response)
+        else:
+            _handle_palletiq_error(barcode, None)
     
     def on_error(error):
         with _pending_lock:
@@ -66,6 +81,8 @@ def on_barcode_scanned(barcode):
     
     promise = request_palletiq_async(barcode)
     promise.then(on_success).catch(on_error)
+    
+    socketio.emit('add_book', item)
     
     sys.stdout.flush()
 
@@ -86,42 +103,115 @@ def on_palletiq_response(barcode, response):
     
     pusher = response.get("pusher")
     label = response.get("label")
-    distance = response.get("distance", 0)
+    distance = response.get("distance", max_distance)
     
-    with book_dict_lock:
-        if barcode not in book_dict:
-            return
-        
-        if book_dict[barcode].get("pusher") is not None:
-            return
-        
-        book_dict[barcode]["pusher"] = pusher
-        book_dict[barcode]["label"] = label
-        book_dict[barcode]["distance"] = distance
-        book_dict[barcode]["status"] = "progress"
-        
-        positionId = book_dict[barcode].get("positionId", "N/A")
+    item = None
+    
+    with queue_lock:
+        if barcode in queue_items:
+            item = queue_items[barcode]
+            item["pusher"] = pusher
+            item["label"] = label
+            item["distance"] = distance
+
+    if not item:
+        with book_dict_lock:
+            if barcode in book_dict:
+                if book_dict[barcode].get("pusher") is not None:
+                    return
+                item = book_dict[barcode]
+                item["pusher"] = pusher
+                item["label"] = label
+                item["distance"] = distance
+                item["status"] = "progress"
+    
+    if not item:
+        return
+    
+    positionId = item.get("positionId")
+
+    item_to_send = {
+        "barcode": barcode,
+        "pusher": response.get("pusher"),
+        "label": response.get("label"),
+        "distance": response.get("distance", max_distance)
+    }
+    palletiq_response_queue.append(item_to_send)
     
     print(f"✅ PalletIQ Response - Barcode: {barcode}, Photo: {positionId}, Label: {label}, Pusher: {pusher}, Distance: {distance}", flush=True)
 
-    broadcast_book_dict()
+    if positionId is not None and pusher is not None:
+        write_bucket(positionId, pusher)
 
 def _handle_palletiq_error(barcode, error):
-    return
+    with queue_lock:
+        if barcode in queue_items:
+            item = queue_items[barcode]
+            item["status"] = "error"
+            item["error"] = str(error) if error else "Unknown error"
+            
+            with book_dict_lock:
+                if barcode in book_dict:
+                    book_dict[barcode]["status"] = "error"
+                    book_dict[barcode]["error"] = str(error) if error else "Unknown error"
+    
+    with _pending_lock:
+        _pending_requests.discard(barcode)
 
 def on_photo_eye_triggered(positionId):
     photo_eye_trigger_time = time.time()
-    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     
-    with book_dict_lock:
-        for book, data in book_dict.items():
-            if data.get("status") == "pending" and data.get("positionId") is None:
-                data["positionId"] = positionId
-                data["status"] = "progress"
-                data["start_time"] = photo_eye_trigger_time
-                break
+    item = None
+    barcode = None
+    
+    with queue_lock:
+        if len(barcode_queue) > 0:
+            item = barcode_queue.popleft()
+            if item:
+                barcode = item.get("barcode")
+                if barcode and barcode in queue_items:
+                    del queue_items[barcode]
+        else:
+            print(f"⚠️ Photo eye triggered at position {positionId} but barcode_queue is empty", flush=True)
+    
+    if item:
+        item["positionId"] = positionId
+        item["status"] = "progress"
+        item["start_time"] = photo_eye_trigger_time
         
-        sys.stdout.flush()
+        with book_dict_lock:
+            book_dict[item["barcode"]] = item
+        
+        if item.get("pusher") is not None:
+            write_bucket(positionId, item.get("pusher"))
+
+        socketio.emit('update_book', item)
+        print(f"✅ Photo eye processed - Barcode: {item.get('barcode')}, Position: {positionId}", flush=True)
+    else:
+        print(f"❌ Photo eye signal lost - Position: {positionId}, Queue empty", flush=True)
+    
+    sys.stdout.flush()
+
+def track_palletiq_responses():
+    global _palletiq_tracking_running
+    _palletiq_tracking_running = True
+    
+    while _palletiq_tracking_running:
+        try:
+            palletiq_items = []
+            
+            with queue_lock:
+                while len(palletiq_response_queue) > 0:
+                    item = palletiq_response_queue.popleft()
+                    palletiq_items.append(item)
+            
+            if palletiq_items:
+                with app.app_context():
+                    socketio.emit('palletiq_responses', palletiq_items)
+            
+            time.sleep(1.0)
+        except Exception as e:
+            time.sleep(1.0)
 
 def check_connections():
     from barcode_scanner import is_barcode_scanner_connected as check_barcode
@@ -147,57 +237,6 @@ def check_connections():
         }
     }
 
-def broadcast_book_dict():
-    try:
-        items_to_remove = []
-        
-        with book_dict_lock:
-            for barcode, item_data in book_dict.items():
-                if item_data.get("status") == "progress" and item_data.get("positionId") is not None:
-                    elapsed_seconds = time.time() - item_data.get("start_time", time.time())
-                    item_data["positionCm"] = elapsed_seconds * belt_speed
-
-                position_cm = item_data.get("positionCm")
-                distance = item_data.get("distance")
-                if position_cm is not None and distance is not None and position_cm >= distance:
-                    item_data["status"] = "completed"
-
-                if item_data.get("status") == "completed":
-                    items_to_remove.append(barcode)
-
-            for barcode in items_to_remove:
-                if barcode in book_dict:
-                    del book_dict[barcode]
-            
-            socketio.emit('book_dict_update', book_dict)
-            
-    except Exception as e:
-        pass
-
-def _tracking_loop():
-    global _tracking_running
-    
-    while _tracking_running:
-        try:
-            broadcast_book_dict()
-        except Exception:
-            pass
-        
-        time.sleep(1.0)
-
-def start_tracking():
-    global _tracking_thread, _tracking_running
-    
-    if _tracking_thread is None or not _tracking_thread.is_alive():
-        _tracking_running = True
-        _tracking_thread = threading.Thread(target=_tracking_loop, daemon=True)
-        _tracking_thread.start()
-
-def stop_tracking():
-    global _tracking_running
-    _tracking_running = False
-
-
 def broadcast_system_status():
     try:
         status = check_connections()
@@ -206,14 +245,24 @@ def broadcast_system_status():
             "scanner": {"connected": status.get("barcode_scanner", False), "message": "Connected" if status.get("barcode_scanner") else "Disconnected", "mode": os.getenv("SCAN_MODE", "KEYBOARD")},
             "photo_eye": status.get("photo_eye", {"connected": False, "message": "Not Ready"})
         }
+
         socketio.emit('system_status', system_status)
     except Exception:
         pass
 
 @socketio.on('connect')
 def handle_connect():
+    global _test_signals_started
     broadcast_system_status()
-    broadcast_book_dict()
+    
+    if not _test_signals_started:
+        _test_signals_started = True
+        import test_signals
+        def delayed_test():
+            time.sleep(10)
+            test_signals.generate_test_signals(25, 1, 1, 101, "BOOK")
+        test_thread = threading.Thread(target=delayed_test, daemon=True)
+        test_thread.start()
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -236,7 +285,9 @@ def main():
     connect_barcode_signal(on_barcode_scanned)
     connect_photo_eye_signal(on_photo_eye_triggered)
     
-    start_tracking()
+    global _palletiq_tracking_thread
+    _palletiq_tracking_thread = threading.Thread(target=track_palletiq_responses, daemon=True)
+    _palletiq_tracking_thread.start()
 
 app.register_blueprint(scan_bp)
 app.register_blueprint(settings_bp)
@@ -256,5 +307,12 @@ if __name__ == '__main__':
     print(f"Open browser to: http://localhost:{port}", flush=True)
     print("=" * 60, flush=True)
     sys.stdout.flush()
+    
+    def open_browser():
+        time.sleep(1.5)
+        webbrowser.open(f"http://localhost:{port}")
+    
+    browser_thread = threading.Thread(target=open_browser, daemon=True)
+    browser_thread.start()
     
     socketio.run(app, debug=debug_mode, host=host, port=port, use_reloader=False)

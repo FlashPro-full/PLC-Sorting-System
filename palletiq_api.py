@@ -8,6 +8,9 @@ from typing import Dict, Optional
 import re
 import time
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -18,9 +21,6 @@ PASSWORD = os.getenv('PASSWORD')
 
 _session = None
 _session_lock = threading.Lock()
-_async_session = None
-_async_session_lock = threading.Lock()
-_async_sessions = {}
 _token = None
 _token_lock = threading.Lock()
 
@@ -79,26 +79,19 @@ def get_pusher_number(label: str):
     }
 
 async def _get_async_session():
-    global _async_sessions
-    current_loop = asyncio.get_event_loop()
-    loop_id = id(current_loop)
+    loop = asyncio.get_event_loop()
+    try:
+        if loop.is_closed():
+            return None
+    except RuntimeError:
+        return None
     
-    if loop_id not in _async_sessions:
-        _async_sessions[loop_id] = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=10, connect=5),
-            connector=aiohttp.TCPConnector(limit=100, limit_per_host=30)
-        )
-    else:
-        session = _async_sessions[loop_id]
-        if session.closed:
-            _async_sessions[loop_id] = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=10, connect=5),
-                connector=aiohttp.TCPConnector(limit=100, limit_per_host=30)
-            )
-    
-    return _async_sessions[loop_id]
+    connector = aiohttp.TCPConnector(limit=100, limit_per_host=50)
+    session = aiohttp.ClientSession(connector=connector)
+    return session
 
 async def request_palletiq(barcode: str) -> Optional[Dict]: 
+    global _token
     if not DATA_URL_TEMPLATE:
         return None
     
@@ -107,22 +100,28 @@ async def request_palletiq(barcode: str) -> Optional[Dict]:
     if barcode in _api_cache:
         cached_data, cached_time = _api_cache[barcode]
         if current_time - cached_time < _cache_ttl:
+            await asyncio.sleep(0)
             return cached_data
         else:
             del _api_cache[barcode]
     
     try:
-        if not _token:
+        with _token_lock:
+            token = _token
+        if not token:
+            logger.warning(f"⚠️ No token available for barcode {barcode}")
             return None
         
         async_session = await _get_async_session()
-        if not async_session or async_session.closed:
+        if not async_session:
+            logger.error(f"❌ Failed to get async session for barcode {barcode}")
             return None
         
-        data_url = DATA_URL_TEMPLATE.format(scan=barcode, token=_token)
+        data_url = DATA_URL_TEMPLATE.format(scan=barcode, token=token)
+        result = None
 
         try:
-            async with async_session.get(data_url, timeout=aiohttp.ClientTimeout(total=10, connect=5)) as response:
+            async with async_session.get(data_url) as response:
                 if response.status == 200:
                     product_data = await response.json()
                     winner = product_data.get('winner')
@@ -144,21 +143,99 @@ async def request_palletiq(barcode: str) -> Optional[Dict]:
                     
                     pusher_data = get_pusher_number(label)
                     _api_cache[barcode] = (pusher_data, current_time)
-                    
-                    return pusher_data
+                    result = pusher_data
+                elif response.status == 401:
+                    logger.warning(f"⚠️ Token expired (401), refreshing token for barcode {barcode}")
+                    with _token_lock:
+                        _token = None
+                    try:
+                        init_token()
+                        with _token_lock:
+                            if _token:
+                                logger.info(f"✅ Token refreshed successfully, retrying request")
+                                retry_url = DATA_URL_TEMPLATE.format(scan=barcode, token=_token)
+                                async with async_session.get(retry_url) as retry_response:
+                                    if retry_response.status == 200:
+                                        product_data = await retry_response.json()
+                                        winner = product_data.get('winner')
+                                        meta = product_data.get('meta')
+                                        label = 'Extra'
+                                        if winner and winner.get('winnerModule'):
+                                            label = winner.get('winnerSubModule', 'Extra')
+                                        elif meta:
+                                            group = meta.get('product_group')
+                                            if group == 'Book':
+                                                label = 'Reject Book'
+                                            elif group == 'Music':
+                                                label = 'Reject Music'
+                                            elif group == 'DVD':
+                                                label = 'Reject DVD'
+                                            elif group == 'Video Game':
+                                                label = 'Reject Video Game'
+                                        pusher_data = get_pusher_number(label)
+                                        _api_cache[barcode] = (pusher_data, current_time)
+                                        result = pusher_data
+                                    else:
+                                        logger.error(f"❌ Retry after token refresh failed with status {retry_response.status}")
+                                        result = None
+                            else:
+                                logger.error(f"❌ Failed to refresh token")
+                                result = None
+                    except Exception as e:
+                        logger.error(f"❌ Error refreshing token: {e}", exc_info=True)
+                        result = None
+                elif response.status == 400:
+                    try:
+                        error_body = await response.text()
+                        error_data = json.loads(error_body) if error_body else {}
+                        error_msg = error_data.get('error', '')
+                        
+                        if error_msg == "No results":
+                            logger.info(f"ℹ️ PalletIQ API: No results found for barcode {barcode}, using default pusher")
+                            pusher_data = get_pusher_number('Extra')
+                            _api_cache[barcode] = (pusher_data, current_time)
+                            result = pusher_data
+                        else:
+                            logger.error(f"❌ PalletIQ API returned status 400 (Bad Request) for barcode {barcode}. Error: {error_body}")
+                            result = None
+                    except json.JSONDecodeError:
+                        logger.error(f"❌ PalletIQ API returned status 400 (Bad Request) for barcode {barcode}. Response: {error_body}")
+                        result = None
+                    except Exception as e:
+                        logger.error(f"❌ PalletIQ API returned status 400 (Bad Request) for barcode {barcode}. URL: {data_url}. Exception: {e}")
+                        result = None
                 else:
-                    return None
-        except (asyncio.TimeoutError, aiohttp.ClientError):
-            return None
-    except Exception:
+                    try:
+                        error_body = await response.text()
+                        logger.warning(f"⚠️ PalletIQ API returned status {response.status} for barcode {barcode}. Response: {error_body}")
+                    except:
+                        logger.warning(f"⚠️ PalletIQ API returned status {response.status} for barcode {barcode}")
+                    result = None
+        except asyncio.TimeoutError:
+            logger.error(f"⏱️ Timeout requesting PalletIQ API for barcode {barcode}")
+            result = None
+        except aiohttp.ClientError as e:
+            logger.error(f"❌ Client error requesting PalletIQ API for barcode {barcode}: {e}")
+            result = None
+        except Exception as e:
+            logger.error(f"❌ Unexpected error in request_palletiq for barcode {barcode}: {e}", exc_info=True)
+            result = None
+        finally:
+            if async_session:
+                try:
+                    await async_session.close()
+                except:
+                    pass
+        
+        return result
+    except Exception as e:
+        logger.error(f"❌ Fatal error in request_palletiq for barcode {barcode}: {e}", exc_info=True)
         return None
 
 from promise import Promise
 
 def request_palletiq_async(barcode: str):
-    coro = request_palletiq(barcode)
-    promise = Promise(coro)
-    return promise
+    return Promise(request_palletiq(barcode))
 
 def request_palletiq_sync(barcode: str):
     import asyncio

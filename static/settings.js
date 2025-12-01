@@ -24,7 +24,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             });
         })
-        .catch(error => console.error("Error fetching settings:", error));
+        .catch(error => {});
 
     // Handle form submission
     form.addEventListener("submit", function (event) {
@@ -55,6 +55,6 @@ document.addEventListener("DOMContentLoaded", function () {
             // Trigger settings update event for 3D visualization
             document.dispatchEvent(new CustomEvent('settingsUpdated'));
         })
-        .catch(error => console.error("Error updating settings:", error));
+        .catch(error => {});
     });
 });

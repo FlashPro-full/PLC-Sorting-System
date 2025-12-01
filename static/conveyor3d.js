@@ -1,17 +1,12 @@
 // Three.js 3D Conveyor System Visualization
-console.log('📦 Loading conveyor3d.js module...');
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-
-console.log('✅ Three.js imported:', typeof THREE);
-console.log('✅ OrbitControls imported:', typeof OrbitControls);
 
 class ConveyorSystem3D {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
         if (!this.container) {
-            console.error(`❌ Container with id "${containerId}" not found`);
             return;
         }
         
@@ -45,11 +40,7 @@ class ConveyorSystem3D {
             
             // Load settings asynchronously - this will update pusher positions and camera
             this.loadSettings();
-            
-            console.log('✅ ConveyorSystem3D initialized successfully');
         } catch (error) {
-            console.error('❌ Error initializing ConveyorSystem3D:', error);
-            console.error('Stack trace:', error.stack);
             // Show error message in container
             if (this.container) {
                 this.container.innerHTML = `
@@ -67,16 +58,13 @@ class ConveyorSystem3D {
         // Check WebGL support
         if (!this.isWebGLSupported()) {
             this.container.innerHTML = '<div style="padding: 20px; text-align: center; color: #fff;">❌ WebGL is not supported in your browser. Please use a modern browser like Chrome, Firefox, or Edge.</div>';
-            console.error('❌ WebGL not supported');
             return;
         }
-        console.log('✅ WebGL supported');
 
         // Scene setup - working room environment
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0xe8e8e8); // Light gray room background
         // No fog - clear visibility
-        console.log('✅ Scene created');
 
         // Camera - calculate position to see entire conveyor
         const width = this.container.clientWidth || 800;
@@ -119,11 +107,6 @@ class ConveyorSystem3D {
         // Look at the center of the conveyor (0, 0, 0)
         // This creates a side view looking along the conveyor
         this.camera.lookAt(0, 0, 0);
-        console.log('✅ Camera positioned to see entire conveyor from side:', {
-            position: this.camera.position,
-            conveyorLength: conveyorLength,
-            fov: 60
-        });
 
         // Remove loading indicator
         const loadingDiv = document.getElementById('conveyor3d-loading');
@@ -142,9 +125,7 @@ class ConveyorSystem3D {
             this.renderer.shadowMap.enabled = true;
             this.renderer.shadowMap.type = THREE.BasicShadowMap; // Faster than PCFSoftShadowMap
             this.container.appendChild(this.renderer.domElement);
-            console.log(`✅ Renderer created: ${width}x${height}`);
         } catch (error) {
-            console.error('❌ Failed to create WebGL renderer:', error);
             this.container.innerHTML = '<div style="padding: 20px; text-align: center; color: #fff;">❌ Failed to initialize 3D renderer. Check browser console for details.</div>';
             return;
         }
@@ -195,7 +176,6 @@ class ConveyorSystem3D {
 
         // Create working room environment
         this.createWorkingRoom();
-        console.log('✅ Working room environment created');
 
         // Settings will be loaded asynchronously, create components after
         // Components will use default values initially, then update when settings load
@@ -351,22 +331,25 @@ class ConveyorSystem3D {
 
         this.conveyorBelt = group;
         this.scene.add(group);
-        console.log('✅ Conveyor belt added to scene at position:', group.position);
     }
 
     createBarcodeScanner() {
         const group = new THREE.Group();
         group.userData.name = "Barcode Scanner";
         
-        // Calculate scanner position based on conveyor length
-        // Scanner should be at the start of the conveyor (near beginning)
+        // Barcode Scanner is positioned at negative cm (before photo eye at 0cm)
+        const SCANNER_POSITION_CM = -50;
+        
         let maxPusherDistance = 972;
         if (this.settings) {
             const distances = Object.values(this.settings).map(p => p.distance || 0);
             maxPusherDistance = Math.max(...distances, 972);
         }
         const startBuffer = 200;
-        const scannerZ = -(startBuffer + maxPusherDistance + 200) / 2 + startBuffer - 50;
+        const totalLength = startBuffer + maxPusherDistance + 200;
+        const conveyorStart = -totalLength / 2;
+        const scannerZ = this.cmToZPosition(SCANNER_POSITION_CM);
+        
         
         // Scanner body - make it larger and more visible
         const bodyGeometry = new THREE.BoxGeometry(40, 30, 35);
@@ -433,33 +416,16 @@ class ConveyorSystem3D {
         group.userData.detectionActive = false; // Track if currently detecting
         group.userData.lastDetectionTime = 0; // Track last detection time
         
-        // Calculate photo eye position based on position ID mapping
-        // Photo eye is at position ID ~105 (shortly after scanner at 101)
-        // Use the position mapping to get the correct Z coordinate
-        const photoEyePositionId = 105; // Photo eye detects items at position ~105
-        let photoEyeZ = -500; // Default fallback
+        // Photo Eye is at 0cm (reference point for positionCm)
+        const PHOTO_EYE_POSITION_CM = 0;
         
-        // Try to get position from mapping (recalculate if needed)
-        if (!this.positionIdToZ || Object.keys(this.positionIdToZ).length === 0) {
-            this.positionIdToZ = this.calculatePositionMapping();
+        let maxPusherDistance = 972;
+        if (this.settings) {
+            const distances = Object.values(this.settings).map(p => p.distance || 0);
+            maxPusherDistance = Math.max(...distances, 972);
         }
+        const photoEyeZ = this.cmToZPosition(PHOTO_EYE_POSITION_CM);
         
-        if (this.positionIdToZ[photoEyePositionId] !== undefined) {
-            photoEyeZ = this.positionIdToZ[photoEyePositionId];
-        } else {
-            // Calculate manually if mapping not ready
-            let maxPusherDistance = 972;
-            if (this.settings) {
-                const distances = Object.values(this.settings).map(p => p.distance || 0);
-                maxPusherDistance = Math.max(...distances, 972);
-            }
-            const startBuffer = 200;
-            const totalLength = startBuffer + maxPusherDistance + 200;
-            const conveyorStart = -totalLength / 2;
-            const conveyorEnd = totalLength / 2;
-            const normalized = (photoEyePositionId - 101) / (150 - 101);
-            photoEyeZ = conveyorStart + (normalized * (conveyorEnd - conveyorStart));
-        }
         
         // Photo eye sensor body - SMALLER size, VERTICAL orientation (rotated 90 degrees)
         // Photo eye should be vertical to detect items passing through horizontally
@@ -537,13 +503,12 @@ class ConveyorSystem3D {
         group.add(label);
         group.userData.label = label;
 
-        // Store position ID for detection logic
-        group.userData.positionId = photoEyePositionId;
+        // Store position in cm for reference
+        group.userData.positionCm = PHOTO_EYE_POSITION_CM;
         group.userData.zPosition = photoEyeZ;
 
         this.photoEye = group;
         this.scene.add(group);
-        console.log('✅ Photo Eye created at Z:', photoEyeZ, 'Position ID:', photoEyePositionId);
     }
 
     createPushers() {
@@ -631,7 +596,10 @@ class ConveyorSystem3D {
         const arm = new THREE.Mesh(armGeometry, armMaterial);
         arm.position.set(-30, 20, 0); // Start position (retracted, on left side)
         arm.castShadow = true;
+        arm.userData.isArm = true;
+        arm.userData.originalX = -30;
         group.add(arm);
+        group.userData.arm = arm; // Store direct reference
 
         // Pusher head - at the end of the arm
         const headGeometry = new THREE.BoxGeometry(10, 20, 20);
@@ -639,7 +607,10 @@ class ConveyorSystem3D {
         const head = new THREE.Mesh(headGeometry, headMaterial);
         head.position.set(0, 20, 0); // At the end of arm (will extend toward center)
         head.castShadow = true;
+        head.userData.isHead = true;
+        head.userData.originalX = 0;
         group.add(head);
+        group.userData.head = head; // Store direct reference
 
         // Base/mount
         const baseGeometry = new THREE.BoxGeometry(30, 15, 30);
@@ -685,9 +656,9 @@ class ConveyorSystem3D {
         distLabel.lookAt(this.camera.position);
         group.add(distLabel);
 
-        // Position pusher at the Z coordinate corresponding to its position ID
-        // Use position ID mapping to get exact Z position (matches item tracking)
-        const pusherZ = this.positionIdToZ[positionId];
+        // Position pusher at Z coordinate corresponding to its distance in cm
+        // distance is in cm, where 0cm = photo eye position
+        const pusherZ = this.cmToZPosition(distance);
         if (pusherZ !== undefined) {
             group.position.z = pusherZ;
         } else {
@@ -726,7 +697,7 @@ class ConveyorSystem3D {
         group.userData = { pusherNumber, distance, positionId, type: "bucket" };
 
         // Position bucket at the Z coordinate corresponding to its position ID (same as pusher)
-        const bucketZ = this.positionIdToZ[positionId];
+        const bucketZ = this.cmToZPosition(distance);
         if (bucketZ !== undefined) {
             group.position.z = bucketZ;
         } else {
@@ -782,17 +753,9 @@ class ConveyorSystem3D {
     }
 
     createItem(barcode, positionZ = null) {
-        // Calculate item start position (at scanner location)
+        // Calculate item start position (at scanner location - negative cm)
         if (positionZ === null) {
-            let maxPusherDistance = 972;
-            if (this.settings) {
-                const distances = Object.values(this.settings).map(p => p.distance || 0);
-                maxPusherDistance = Math.max(...distances, 972);
-            }
-            const startBuffer = 200;
-            const totalLength = startBuffer + maxPusherDistance + 200;
-            const conveyorStart = -totalLength / 2;
-            positionZ = conveyorStart + startBuffer - 50; // Near scanner
+            positionZ = this.cmToZPosition(-50);
         }
         
         // ULTRA-OPTIMIZED: Single mesh book model - maximum performance
@@ -836,10 +799,19 @@ class ConveyorSystem3D {
 
 
     activatePusher(pusherNumber) {
-        if (pusherNumber < 1 || pusherNumber > 8) return;
+        console.log('activatePusher', pusherNumber);
+        if (pusherNumber < 1 || pusherNumber > 8) {
+            return;
+        }
+        
+        if (!this.pushers || this.pushers.length === 0) {
+            return;
+        }
         
         const pusher = this.pushers[pusherNumber - 1];
-        if (!pusher) return;
+        if (!pusher) {
+            return;
+        }
 
         // Prevent multiple activations
         if (pusher.userData.activated) {
@@ -848,21 +820,22 @@ class ConveyorSystem3D {
 
         pusher.userData.activated = true;
         
-        // Find arm and head - arm extends along X-axis, head is at the end
-        const arm = pusher.children.find(child => 
-            child.geometry && child.geometry.type === 'BoxGeometry' && 
-            child.position.y === 20 && 
-            child.position.x < 0 // Arm starts at negative X
-        );
-        const head = pusher.children.find(child => 
-            child.geometry && child.geometry.type === 'BoxGeometry' && 
-            child.position.y === 20 && 
-            Math.abs(child.position.x) < 5 // Head is near x=0
-        );
+        // Use stored references or find arm and head
+        let arm = pusher.userData.arm;
+        let head = pusher.userData.head;
+        
+        if (!arm || !head) {
+            // Fallback: find by userData flags
+            for (let i = 0; i < pusher.children.length; i++) {
+                const child = pusher.children[i];
+                if (child.userData.isArm) arm = child;
+                if (child.userData.isHead) head = child;
+            }
+        }
         
         if (arm && head) {
-            const originalArmX = arm.position.x; // Should be around -30
-            const originalHeadX = head.position.x; // Should be around 0
+            const originalArmX = arm.userData.originalX !== undefined ? arm.userData.originalX : arm.position.x;
+            const originalHeadX = head.userData.originalX !== undefined ? head.userData.originalX : head.position.x;
             
             // Add 0.5s delay before pusher starts moving forward
             setTimeout(() => {
@@ -911,13 +884,12 @@ class ConveyorSystem3D {
                             }
                          };
                          requestAnimationFrame(retractAnimation);
-                     }, 500); // Delay before retraction
+                     }, 50); // Delay before retraction
                  }
              };
              requestAnimationFrame(extendAnimation);
-            }, 500); // 0.5s delay before pusher forward movement starts
+            }, 50); // 0.5s delay before pusher forward movement starts
         } else {
-            console.warn(`⚠️ Could not find arm/head for pusher ${pusherNumber}`);
             pusher.userData.activated = false;
         }
     }
@@ -928,27 +900,18 @@ class ConveyorSystem3D {
             .then(settings => {
                 this.settings = settings;
                 this.updatePusherPositions();
-                // Recalculate position mapping when settings load
                 this.positionIdToZ = this.calculatePositionMapping();
-                
-                // Recreate photo eye with correct position after mapping is ready
                 this.createPhotoEye();
-                
-                // Recalculate camera position to fit entire conveyor
                 this.updateCameraForConveyor();
                 
-                console.log('✅ Settings loaded for 3D visualization');
             })
             .catch(error => {
-                console.error('❌ Error loading settings:', error);
             });
     }
 
     updatePusherPositions() {
         if (!this.settings) return;
 
-        // Recalculate position mapping when settings change
-        this.positionIdToZ = this.calculatePositionMapping();
         this.calculatePositionIdToCm();
 
         this.pushers.forEach((pusher, index) => {
@@ -956,20 +919,17 @@ class ConveyorSystem3D {
             const pusherKey = `Pusher ${pusherNumber}`;
             if (this.settings[pusherKey]) {
                 const distance = this.settings[pusherKey].distance;
-                const positionId = this.getPusherPositionId(pusherNumber); // Use direct mapping
+                const positionId = this.getPusherPositionId(pusherNumber);
                 
-                // Update pusher position using position ID mapping
-                const pusherZ = this.positionIdToZ[positionId];
-                if (pusherZ !== undefined) {
-                    pusher.position.z = pusherZ;
-                }
+                const pusherZ = this.cmToZPosition(distance);
+                pusher.position.z = pusherZ;
                 pusher.position.x = -40; // Ensure pushers stay on LEFT side
                 pusher.userData.distance = distance;
                 pusher.userData.positionId = positionId;
                 
                 // Update corresponding bucket position
                 if (pusher.userData.bucket) {
-                    pusher.userData.bucket.position.z = pusherZ || pusher.position.z;
+                    pusher.userData.bucket.position.z = pusherZ;
                     pusher.userData.bucket.position.x = 50; // Ensure buckets stay on RIGHT side
                     pusher.userData.bucket.userData.positionId = positionId;
                 }
@@ -982,7 +942,6 @@ class ConveyorSystem3D {
         if (!this.renderer || !this.scene || !this.camera) {
             // Don't log error on every frame - only log once
             if (!this._animateErrorLogged) {
-                console.warn('⚠️ Animation paused: renderer, scene, or camera not ready yet');
                 this._animateErrorLogged = true;
             }
             // Still request next frame to retry when components are ready
@@ -993,7 +952,6 @@ class ConveyorSystem3D {
         // Reset error flag if we're animating successfully
         if (this._animateErrorLogged) {
             this._animateErrorLogged = false;
-            console.log('✅ Animation resumed - all components ready');
         }
         
         // Calculate delta time for frame-independent movement
@@ -1009,8 +967,11 @@ class ConveyorSystem3D {
         for (let i = 0; i < itemsLength; i++) {
             const item = this.items[i];
             
-            // Skip items that are being pushed (they have their own animation)
-            if (item.userData.beingPushed || item.userData.routed) continue;
+            // Skip invalid items
+            if (!item || !item.userData) continue;
+            
+            // Skip items that are routed, but allow beingPushed items to continue animating
+            if (item.userData.routed || item.userData.beingPushed) continue;
             
             // Calculate current position - prefer stored positionCm, otherwise calculate from start_time
             let currentPosition = null;
@@ -1020,38 +981,58 @@ class ConveyorSystem3D {
                 currentPosition = this.calculatePositionFromStartTime(item.userData.start_time);
             }
             if (currentPosition !== null) {
-                    // Calculate Z position from current position in cm
-                    let maxPusherDistance = 972;
-                    if (this.settings) {
-                        const distances = Object.values(this.settings).map(p => p.distance || 0);
-                        maxPusherDistance = Math.max(...distances, 972);
+                // Calculate Z position from current position in cm
+                // positionCm: 0cm = photo eye, negative = before photo eye, positive = after photo eye
+                const targetZ = this.cmToZPosition(currentPosition);
+                
+                // Smooth interpolation to target position
+                const currentZ = item.position.z;
+                const distanceToTarget = targetZ - currentZ;
+                const absDistance = Math.abs(distanceToTarget);
+                
+                if (absDistance > 0.01) {
+                    // Smooth lerp for smooth movement
+                    const lerpFactor = 0.15; // Adjust for smoothness
+                    item.position.z = currentZ + (distanceToTarget * lerpFactor);
+                } else {
+                    item.position.z = targetZ;
+                }
+                
+                // Don't overwrite backend positionCm - it's updated via updateItemsFromTracking
+                
+                // Check for pusher activation if item is in progress status
+                if (item.userData.status === "progress" && 
+                    item.userData.pusher && 
+                    item.userData.distance && 
+                    !item.userData.beingPushed && 
+                    !item.userData.routed) {
+                    
+                    const pusherNum = typeof item.userData.pusher === 'number' ? 
+                        item.userData.pusher : parseInt(item.userData.pusher);
+                    const pusherDistance = typeof item.userData.distance === 'number' ? 
+                        item.userData.distance : parseFloat(item.userData.distance);
+                    
+                    if (pusherNum >= 1 && pusherNum <= 8 && pusherDistance > 0) {
+                        const COMPLETION_OFFSET = 3.21;
+                        const activationThreshold = pusherDistance - COMPLETION_OFFSET;
+                        console.log('currentPosition', currentPosition, activationThreshold, 'index:', i);
+                        if (currentPosition >= activationThreshold - 3.21 && !item.userData.beingPushed) {
+                            item.userData.beingPushed = true;
+                            this.activatePusher(pusherNum);
+                            this.pushItemIntoBucket(item, pusherNum);
+                        }
                     }
-                    const startBuffer = 200;
-                    const totalLength = startBuffer + maxPusherDistance + 200;
-                    const conveyorStart = -totalLength / 2;
-                    const targetZ = conveyorStart + startBuffer + currentPosition;
-                    
-                    // Smooth interpolation to target position
-                    const currentZ = item.position.z;
-                    const distanceToTarget = targetZ - currentZ;
-                    const absDistance = Math.abs(distanceToTarget);
-                    
-                    if (absDistance > 0.01) {
-                        // Smooth lerp for smooth movement
-                        const lerpFactor = 0.15; // Adjust for smoothness
-                        item.position.z = currentZ + (distanceToTarget * lerpFactor);
-                    } else {
-                        item.position.z = targetZ;
-                    }
-                    
-                    // Update position in cm for display (table will update via its own animation loop)
-                    item.userData.positionCm = currentPosition;
-                    
-                    // Check if item reached end of conveyor
-                    if (currentPosition >= maxPusherDistance + 200 && !item.userData.routed) {
-                        item.userData.routed = true;
-                        setTimeout(() => this.removeItem(item), 200);
-                    }
+                }
+                
+                // Check if item reached end of conveyor
+                let maxPusherDistance = 972;
+                if (this.settings) {
+                    const distances = Object.values(this.settings).map(p => p.distance || 0);
+                    maxPusherDistance = Math.max(...distances, 972);
+                }
+                if (currentPosition >= maxPusherDistance + 200 && !item.userData.routed) {
+                    item.userData.routed = true;
+                    setTimeout(() => this.removeItem(item), 200);
                 }
             }
         }
@@ -1068,7 +1049,6 @@ class ConveyorSystem3D {
                    } catch (renderError) {
                        // Log render error but don't spam console
                        if (!this._renderErrorLogged) {
-                           console.error('❌ Render error:', renderError);
                            this._renderErrorLogged = true;
                        }
                    }
@@ -1120,20 +1100,9 @@ class ConveyorSystem3D {
             this.controls.update();
         }
         
-        console.log('✅ Camera updated for side view:', {
-            position: this.camera.position,
-            conveyorLength: conveyorLength,
-            conveyorWidth: conveyorWidth
-        });
     }
 
-    calculatePositionMapping() {
-        // Calculate Z position for each position ID (101-150)
-        const mapping = {};
-        const POSITION_ID_MIN = 101;
-        const POSITION_ID_MAX = 150;
-        
-        // Get conveyor dimensions
+    cmToZPosition(positionCm) {
         let maxPusherDistance = 972;
         if (this.settings) {
             const distances = Object.values(this.settings).map(p => p.distance || 0);
@@ -1142,16 +1111,13 @@ class ConveyorSystem3D {
         const startBuffer = 200;
         const totalLength = startBuffer + maxPusherDistance + 200;
         const conveyorStart = -totalLength / 2;
-        const conveyorEnd = totalLength / 2;
+        const photoEyeZ = conveyorStart + startBuffer;
         
-        // Map position IDs to Z coordinates
-        for (let posId = POSITION_ID_MIN; posId <= POSITION_ID_MAX; posId++) {
-            const normalized = (posId - POSITION_ID_MIN) / (POSITION_ID_MAX - POSITION_ID_MIN);
-            const zPosition = conveyorStart + (normalized * (conveyorEnd - conveyorStart));
-            mapping[posId] = zPosition;
-        }
-        
-        return mapping;
+        return photoEyeZ + positionCm;
+    }
+    
+    calculatePositionMapping() {
+        return {};
     }
 
     calculatePositionFromStartTime(startTime) {
@@ -1187,27 +1153,6 @@ class ConveyorSystem3D {
     }
 
     updateItemFromPositionId(item, positionId) {
-        // Update item's Z position based on position ID with ultra-smooth interpolation
-        // This is called when position ID changes, but animation loop handles continuous movement
-        if (this.positionIdToZ[positionId] !== undefined) {
-            const targetZ = this.positionIdToZ[positionId];
-            const currentZ = item.position.z;
-            const distance = Math.abs(targetZ - currentZ);
-            
-            // Maximum lerp for ultra-smooth, continuous response when position ID changes
-            // The animation loop will handle smooth interpolation between frames
-            const lerpFactor = 0.9; // Increased from 0.8 to 0.9 for smoother response
-            
-            if (distance < 0.005) {  // Reduced threshold for even smoother transitions
-                // Snap when very close
-                item.position.z = targetZ;
-            } else {
-                // Ultra-smooth interpolation to get close to target
-                item.position.z = currentZ + (targetZ - currentZ) * lerpFactor;
-            }
-            
-            return true;
-        }
         return false;
     }
 
@@ -1216,15 +1161,9 @@ class ConveyorSystem3D {
     setupEventListeners() {
         // Listen for scan events
         document.addEventListener('itemScanned', (event) => {
-            const { barcode, location, pusher } = event.detail;
+            const { barcode } = event.detail;
             // Create item at calculated start position
             this.createItem(barcode);
-            
-            if (pusher) {
-                setTimeout(() => {
-                    this.activatePusher(pusher);
-                }, 2000);
-            }
         });
 
         // Listen for active items updates (real-time tracking)
@@ -1239,31 +1178,32 @@ class ConveyorSystem3D {
             // Recalculate position mapping when settings change
             this.positionIdToZ = this.calculatePositionMapping();
         });
+        
+        // Listen for pusher activation events
+        document.addEventListener('pusherActivate', (event) => {
+            const { barcode, pusher } = event.detail;
+            if (barcode) {
+                const item = this.itemsByBarcode[barcode];
+                if (item) {
+                    item.userData.pusherActivated = true;
+                }
+            }
+        });
     }
 
     updateItemsFromTracking(trackedItems) {
-        // Update 3D items based on real-time tracking data
-        // Optimized: batch updates and minimize DOM/3D operations
         const trackedBarcodes = new Set(trackedItems.map(item => item.barcode));
         
-        // Process updates in batch
         trackedItems.forEach(trackedItem => {
             const barcode = trackedItem.barcode;
             trackedBarcodes.add(barcode);
             
-            // Check if item already exists in 3D scene
             if (this.itemsByBarcode[barcode]) {
-                // Update existing item position
                 const item = this.itemsByBarcode[barcode];
-                
-                // CRITICAL: Skip items that are already routed or being pushed
-                // These items are in the process of being removed and should not be updated
-                if (item.userData.routed || item.userData.beingPushed) {
-                    console.log(`⏭️ Skipping update for routed/being-pushed item: ${barcode}`);
-                    return; // Skip this item
+                if (!item || !item.userData || item.userData.routed) {
+                    return;
                 }
                 
-                // Update item data from tracked item
                 item.userData.start_time = trackedItem.start_time;
                 item.userData.distance = trackedItem.distance;
                 item.userData.status = trackedItem.status;
@@ -1273,81 +1213,27 @@ class ConveyorSystem3D {
                 if (trackedItem.positionCm !== undefined && trackedItem.positionCm !== null) {
                     item.userData.positionCm = typeof trackedItem.positionCm === 'string' ? parseFloat(trackedItem.positionCm) : trackedItem.positionCm;
                 }
-                // Initialize pusherActivated if not already set
                 if (item.userData.pusherActivated === undefined) {
                     item.userData.pusherActivated = false;
                 }
-                // Initialize beingPushed if not already set
                 if (item.userData.beingPushed === undefined) {
                     item.userData.beingPushed = false;
                 }
                 
-                // Check if item is passing through photo eye (position ID ~105)
-                // Photo eye should detect when item REACHES the photo eye position (105), not before
                 if (this.photoEye && !item.userData.photoEyeDetected) {
-                    const photoEyePosId = this.photoEye.userData.positionId || 105;
-                    const currentPosId = trackedItem.positionId;
-                    // Trigger detection when item reaches or just passes photo eye position
-                    // Use >= to ensure we detect when item reaches position 105
-                    if (currentPosId >= photoEyePosId && currentPosId <= photoEyePosId + 1) {
-                        // Item has reached photo eye position - trigger detection
+                    let currentPositionCm = null;
+                    if (trackedItem.positionCm !== undefined && trackedItem.positionCm !== null) {
+                        currentPositionCm = typeof trackedItem.positionCm === 'string' ? parseFloat(trackedItem.positionCm) : trackedItem.positionCm;
+                    } else if (trackedItem.start_time && trackedItem.positionId) {
+                        currentPositionCm = this.calculatePositionFromStartTime(trackedItem.start_time);
+                    }
+                    
+                    if (currentPositionCm !== null && currentPositionCm >= -5 && currentPositionCm <= 5) {
                         this.triggerPhotoEyeDetection(item);
                         item.userData.photoEyeDetected = true;
-                        console.log(`👁️ Photo eye detected item ${trackedItem.barcode} at position ${currentPosId} (photo eye at ${photoEyePosId})`);
                     }
                 }
                 
-                // Handle bucket falling logic based on status
-                if (trackedItem.status === "progress" && trackedItem.distance && trackedItem.pusher) {
-                    // Status "progress": fall into corresponding bucket when position >= distance
-                    let currentPosition = null;
-                    if (trackedItem.positionCm !== undefined && trackedItem.positionCm !== null) {
-                        currentPosition = typeof trackedItem.positionCm === 'string' ? parseFloat(trackedItem.positionCm) : trackedItem.positionCm;
-                    } else {
-                        currentPosition = this.calculatePositionFromStartTime(trackedItem.start_time);
-                    }
-                    if (currentPosition !== null && currentPosition >= trackedItem.distance && !item.userData.beingPushed && !item.userData.routed) {
-                        item.userData.beingPushed = true;
-                        item.userData.routed = true;
-                        
-                        console.log(`📦 Pushing item ${barcode} into bucket ${trackedItem.pusher} (position: ${currentPosition.toFixed(1)}cm >= distance: ${trackedItem.distance}cm)`);
-                        
-                        // Activate pusher
-                        this.activatePusher(trackedItem.pusher);
-                        
-                        // Mark item as routed in backend
-                        fetch('/mark-item-routed', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ barcode: barcode })
-                        }).catch(err => console.error('Failed to mark item as routed:', err));
-                        
-                        // Start pushing animation: move to side and fall into bucket
-                        this.pushItemIntoBucket(item, trackedItem.pusher);
-                    }
-                } else if (trackedItem.status === "pending") {
-                    // Status "pending": fall into latest bucket (pusher 8)
-                    const latestPusher = 8;
-                    if (!item.userData.beingPushed && !item.userData.routed) {
-                        item.userData.beingPushed = true;
-                        item.userData.routed = true;
-                        
-                        console.log(`📦 Pushing pending item ${barcode} into latest bucket (pusher ${latestPusher})`);
-                        
-                        // Activate pusher
-                        this.activatePusher(latestPusher);
-                        
-                        // Mark item as routed in backend
-                        fetch('/mark-item-routed', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ barcode: barcode })
-                        }).catch(err => console.error('Failed to mark item as routed:', err));
-                        
-                        // Start pushing animation: move to side and fall into bucket
-                        this.pushItemIntoBucket(item, latestPusher);
-                    }
-                }
             } else {
                 // Create new item - use positionCm from backend if available, otherwise calculate from start_time
                 let currentPosition = null;
@@ -1357,23 +1243,19 @@ class ConveyorSystem3D {
                     currentPosition = this.calculatePositionFromStartTime(trackedItem.start_time);
                 }
                 if (currentPosition === null) {
-                    console.log(`⏭️ Skipping creation of item without positionCm or start_time: ${barcode}`);
                     return;
                 }
                 
                 // Calculate Z position from current position in cm
-                let maxPusherDistance = 972;
-                if (this.settings) {
-                    const distances = Object.values(this.settings).map(p => p.distance || 0);
-                    maxPusherDistance = Math.max(...distances, 972);
+                // positionCm: negative = before photo eye (scanner), 0 = photo eye, positive = after photo eye
+                let zPosition;
+                if (currentPosition !== null && currentPosition !== undefined) {
+                    zPosition = this.cmToZPosition(currentPosition);
+                } else {
+                    zPosition = this.cmToZPosition(-50);
                 }
-                const startBuffer = 200;
-                const totalLength = startBuffer + maxPusherDistance + 200;
-                const conveyorStart = -totalLength / 2;
-                const zPosition = conveyorStart + startBuffer + currentPosition;
                 
                 const item = this.createItem(trackedItem.barcode, zPosition);
-                console.log(`📦 Created item ${barcode} at position ${currentPosition.toFixed(1)}cm (Z: ${zPosition.toFixed(1)})`);
                 
                 // Store metadata
                 item.userData.start_time = trackedItem.start_time;
@@ -1398,10 +1280,13 @@ class ConveyorSystem3D {
         itemsToRemove.forEach(barcode => {
             const item = this.itemsByBarcode[barcode];
             if (item && this.scene) {
-                this.scene.remove(item);
-                const index = this.items.indexOf(item);
-                if (index > -1) {
-                    this.items.splice(index, 1);
+                try {
+                    this.scene.remove(item);
+                    const index = this.items.indexOf(item);
+                    if (index > -1) {
+                        this.items.splice(index, 1);
+                    }
+                } catch (e) {
                 }
             }
             delete this.itemsByBarcode[barcode];
@@ -1463,10 +1348,10 @@ class ConveyorSystem3D {
             fadeOut(0);
         }, 300);
         
-        console.log('👁️ Photo Eye detected item:', item.userData.barcode);
     }
 
     pushItemIntoBucket(item, pusherNumber) {
+        console.log('pushItemIntoBucket', item, pusherNumber);
         // Animate item being pushed off belt and falling into bucket
         if (!item || !this.scene) return;
         
@@ -1538,7 +1423,8 @@ class ConveyorSystem3D {
                 item.position.y = targetY;
                 item.position.z = targetZ;
                 
-                // Remove item after a short delay (simulate it being in the bucket)
+                // Mark as routed and remove item after a short delay
+                item.userData.routed = true;
                 setTimeout(() => {
                     this.removeItem(item);
                 }, 500);
@@ -1546,7 +1432,6 @@ class ConveyorSystem3D {
         };
         
         requestAnimationFrame(animate);
-        console.log(`📦 Pushing item ${item.userData.barcode} into bucket ${pusherNumber}`);
     }
 
     removeItem(item) {
@@ -1567,7 +1452,6 @@ class ConveyorSystem3D {
             delete this.itemsByBarcode[item.userData.barcode];
         }
         
-        console.log(`🗑️ Removed item ${item.userData.barcode} after pusher operation`);
     }
 
     isWebGLSupported() {
@@ -1592,13 +1476,12 @@ class ConveyorSystem3D {
 }
 
 // Export for use - make available globally
-window.ConveyorSystem3D = ConveyorSystem3D;
-console.log('✅ ConveyorSystem3D class exported to window');
-console.log('   Type check:', typeof window.ConveyorSystem3D);
-
-// Dispatch event to notify that module is loaded
-window.dispatchEvent(new CustomEvent('conveyor3d-loaded'));
-console.log('✅ Dispatched conveyor3d-loaded event');
-
-// Auto-initialization is handled by init3d.js to prevent duplicate instances
-
+if (typeof window !== 'undefined') {
+    window.ConveyorSystem3D = ConveyorSystem3D;
+    
+    // Dispatch event to notify that module is loaded
+    try {
+        window.dispatchEvent(new CustomEvent('conveyor3d-loaded'));
+    } catch (e) {
+    }
+}

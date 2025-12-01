@@ -16,7 +16,7 @@
     </script>
     <!-- Socket.IO for real-time communication -->
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script type="module" src="{{ url_for('static', filename='conveyor3d.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='conveyor3d.js') }}" defer></script>
     <script src="{{ url_for('static', filename='init3d.js') }}" defer></script>
     <script src="{{ url_for('static', filename='script.js') }}" defer></script>
 </head>
