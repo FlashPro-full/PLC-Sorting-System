@@ -383,6 +383,9 @@ document.addEventListener("DOMContentLoaded", () => {
                             existingItem.positionId = data.positionId;
                             existingItem.status = data.status;
                             existingItem.start_time = data.start_time;
+                            existingItem.pusher = data.pusher;
+                            existingItem.label = data.label;
+                            existingItem.distance = data.distance;
                         }
 
                     }
@@ -402,29 +405,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             });
 
-            socket.on('palletiq_responses', (palletiqItems) => {
-                try {
-                    if (Array.isArray(palletiqItems)) {
-                        palletiqItems.forEach(item => {
-                            const barcode = item.barcode;
-                            if (!barcode) return;
-                            
-                            let existingItem = frontendItems.get(barcode);
-                            if (existingItem) {
-                                if ('pusher' in item) existingItem.pusher = item.pusher;
-                                if ('label' in item) existingItem.label = item.label;
-                                if ('distance' in item) existingItem.distance = item.distance;
-                            }
-                        });
-                        
-                        updateActiveItemsTableFromFrontendItems();
-                        document.dispatchEvent(new CustomEvent('activeItemsUpdated', {
-                            detail: { items: Array.from(frontendItems.values()) }
-                        }));
-                    }
-                } catch (error) {
-                }
-            });
         }
     } catch (error) {
     }
