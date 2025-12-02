@@ -21,7 +21,6 @@ load_dotenv()
 
 barcode_queue: deque = deque()
 queue_lock = threading.Lock()
-queue_items: Dict[str, dict] = {}
 
 book_dict: Dict[str, dict] = {}
 book_dict_lock = threading.Lock()
@@ -42,9 +41,10 @@ def on_barcode_scanned(barcode):
     
     with _pending_lock:
         if barcode in _pending_requests:
+            print(f"⚠️ Photo eye triggered for {barcode} but request already pending", flush=True)
             return
         _pending_requests.add(barcode)
-    
+
     item = {
         "barcode": barcode,
         "start_time": scan_time,
@@ -59,99 +59,10 @@ def on_barcode_scanned(barcode):
     
     with queue_lock:
         barcode_queue.append(item)
-        queue_items[barcode] = item
+        book_dict[barcode] = item
     
     socketio.emit('add_book', item)
-    
-    sys.stdout.flush()
 
-_processed_responses = set()
-_response_lock = threading.Lock()
-
-def on_palletiq_response(barcode, response):
-    if not response:
-        return
-    
-    with _response_lock:
-        response_key = f"{barcode}_{response.get('pusher')}_{response.get('label')}"
-        if response_key in _processed_responses:
-            return
-        _processed_responses.add(response_key)
-        if len(_processed_responses) > 1000:
-            _processed_responses.clear()
-    
-    pusher = response.get("pusher")
-    label = response.get("label")
-    distance = response.get("distance", max_distance)
-    
-    item = None
-    
-    with book_dict_lock:
-        if barcode in book_dict:
-            if book_dict[barcode].get("pusher") is not None:
-                return
-            item = book_dict[barcode]
-            item["pusher"] = pusher
-            item["label"] = label
-            item["distance"] = distance
-            item["status"] = "progress"
-    
-    if not item:
-        return
-    
-    positionId = item.get("positionId")
-
-    socketio.emit('update_book', item)
-    
-    print(f"✅ PalletIQ Response - Barcode: {barcode}, Photo: {positionId}, Label: {label}, Pusher: {pusher}, Distance: {distance}", flush=True)
-
-    write_bucket(positionId, pusher)
-
-def _handle_palletiq_error(barcode, error):
-    with queue_lock:
-        if barcode in queue_items:
-            item = queue_items[barcode]
-            item["status"] = "error"
-            item["error"] = str(error) if error else "Unknown error"
-            
-            with book_dict_lock:
-                if barcode in book_dict:
-                    book_dict[barcode]["status"] = "error"
-                    book_dict[barcode]["error"] = str(error) if error else "Unknown error"
-    
-    with _pending_lock:
-        _pending_requests.discard(barcode)
-
-def on_photo_eye_triggered(positionId):
-    photo_eye_trigger_time = time.time()
-    
-    item = None
-    barcode = None
-    
-    with queue_lock:
-        if len(barcode_queue) > 0:
-            item = barcode_queue.popleft()
-            if item:
-                barcode = item.get("barcode")
-                if barcode and barcode in queue_items:
-                    del queue_items[barcode]
-        else:
-            print(f"⚠️ Photo eye triggered at position {positionId} but barcode_queue is empty", flush=True)
-    
-    if item:
-        item["positionId"] = positionId
-        item["status"] = "starting"
-        item["start_time"] = photo_eye_trigger_time
-        
-        with book_dict_lock:
-            book_dict[item["barcode"]] = item
-
-        socketio.emit('update_book', item)
-
-        print(f"✅ Photo eye processed - Barcode: {item.get('barcode')}, Position: {positionId}", flush=True)
-    else:
-        print(f"❌ Photo eye signal lost - Position: {positionId}, Queue empty", flush=True)
-    
     def on_success(response):
         with _pending_lock:
             _pending_requests.discard(barcode)
@@ -168,6 +79,70 @@ def on_photo_eye_triggered(positionId):
     promise = request_palletiq_async(barcode)
     promise.then(on_success).catch(on_error)
     
+    sys.stdout.flush()
+
+def on_palletiq_response(barcode, response):
+    if not response:
+        return
+    
+    pusher = response.get("pusher")
+    label = response.get("label")
+    distance = response.get("distance", max_distance)
+    
+    with book_dict_lock:
+        if barcode in book_dict:
+            if book_dict[barcode].get("pusher") is not None:
+                return
+            book_dict[barcode]["pusher"] = pusher
+            book_dict[barcode]["label"] = label
+            book_dict[barcode]["distance"] = distance
+            book_dict[barcode]["status"] = "progress"
+
+    socketio.emit('update_book', book_dict[barcode])
+
+    positionId = book_dict[barcode]['positionId']
+    
+    print(f"✅ PalletIQ Response - Barcode: {barcode}, Photo: {positionId}, Label: {label}, Pusher: {pusher}, Distance: {distance}", flush=True)
+
+    if positionId is not None and pusher is not None:
+        write_bucket(positionId, pusher)
+
+def _handle_palletiq_error(barcode, error):
+    if not barcode:
+        return
+    
+    with book_dict_lock:
+        if barcode in book_dict:
+            book_dict[barcode]["status"] = "error"
+            book_dict[barcode]["error"] = str(error) if error else "Unknown error"
+            socketio.emit('update_book', book_dict[barcode])
+    
+    with _pending_lock:
+        _pending_requests.discard(barcode)
+
+def on_photo_eye_triggered(positionId):
+    photo_eye_trigger_time = time.time()
+
+    barcode = None
+    
+    with queue_lock:
+        if len(barcode_queue) > 0:
+            item = barcode_queue.popleft()
+            if item:
+                barcode = item.get("barcode")
+        else:
+            print(f"⚠️ Photo eye triggered at position {positionId} but barcode_queue is empty", flush=True)
+    
+    if barcode:  
+        with book_dict_lock:
+            book_dict[barcode]["positionId"] = positionId
+            book_dict[barcode]["status"] = "starting"
+            book_dict[barcode]["start_time"] = photo_eye_trigger_time
+
+        socketio.emit('update_book', book_dict[barcode])
+
+        print(f"✅ Photo eye processed - Barcode: {barcode}, Position: {positionId}", flush=True)
+        
     sys.stdout.flush()
 
 def check_connections():
@@ -212,14 +187,14 @@ def handle_connect():
     global _test_signals_started
     broadcast_system_status()
     
-    if not _test_signals_started:
-        _test_signals_started = True
-        import test_signals
-        def delayed_test():
-            time.sleep(10)
-            test_signals.generate_test_signals(25, 1, 1, 101, "BOOK")
-        test_thread = threading.Thread(target=delayed_test, daemon=True)
-        test_thread.start()
+    # if not _test_signals_started:
+    #     _test_signals_started = True
+    #     import test_signals
+    #     def delayed_test():
+    #         time.sleep(10)
+    #         test_signals.generate_test_signals(25, 1, 1, 101, "BOOK")
+    #     test_thread = threading.Thread(target=delayed_test, daemon=True)
+    #     test_thread.start()
 
 @socketio.on('disconnect')
 def handle_disconnect():
