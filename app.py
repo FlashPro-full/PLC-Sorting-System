@@ -96,13 +96,12 @@ def on_palletiq_response(barcode, response):
             book_dict[barcode]["pusher"] = pusher
             book_dict[barcode]["label"] = label
             book_dict[barcode]["distance"] = distance
-            book_dict[barcode]["status"] = "progress"
 
     socketio.emit('update_book', book_dict[barcode])
 
     positionId = book_dict[barcode]['positionId']
     
-    print(f"✅ PalletIQ Response - Barcode: {barcode}, Photo: {positionId}, Label: {label}, Pusher: {pusher}, Distance: {distance}", flush=True)
+    print(f"✅ PalletIQ Response - Barcode: {barcode}, Label: {label}, Pusher: {pusher}, Distance: {distance}", flush=True)
 
     if positionId is not None and pusher is not None:
         write_bucket(positionId, pusher)
@@ -136,7 +135,7 @@ def on_photo_eye_triggered(positionId):
     if barcode:  
         with book_dict_lock:
             book_dict[barcode]["positionId"] = positionId
-            book_dict[barcode]["status"] = "starting"
+            book_dict[barcode]["status"] = "progress"
             book_dict[barcode]["start_time"] = photo_eye_trigger_time
 
         socketio.emit('update_book', book_dict[barcode])
