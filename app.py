@@ -171,7 +171,7 @@ def _handle_purescan_error(barcode, error):
 
 def on_photo_eye_triggered(positionId):
     photo_eye_trigger_time = time.time()
-    print(f"📍PostionId1: {positionId}")
+    print(f"📍PostionId: {positionId}")
     barcode = None
     
     with queue_lock:
@@ -237,14 +237,14 @@ def handle_connect():
     global _test_signals_started
     broadcast_system_status()
     
-    if not _test_signals_started:
-        _test_signals_started = True
-        import test_signals
-        def delayed_test():
-            time.sleep(10)
-            test_signals.generate_test_signals(25, 1, 1, 101, "BOOK")
-        test_thread = threading.Thread(target=delayed_test, daemon=True)
-        test_thread.start()
+    # if not _test_signals_started:
+    #     _test_signals_started = True
+    #     import test_signals
+    #     def delayed_test():
+    #         time.sleep(10)
+    #         test_signals.generate_test_signals(25, 1, 1, 101)
+    #     test_thread = threading.Thread(target=delayed_test, daemon=True)
+    #     test_thread.start()
 
 @socketio.on('disconnect')
 def handle_disconnect():

@@ -40,6 +40,10 @@ def init_session():
     _session.timeout = 10
     return
 
+LOGIN_TIMEOUT = 90
+LOGIN_RETRIES = 3
+LOGIN_RETRY_DELAY = 5
+
 def init_token():
     global _token
 
@@ -51,16 +55,36 @@ def init_token():
     if not LOGIN_URL:
         return
 
-    response = _session.post(LOGIN_URL, json=login_payload, timeout=10)
-
-    if response.status_code == 200:
-        data = response.json()
-        if data.get('result') and data.get('token'):
-            with _token_lock:
-                _token = data.get('token')
+    last_error = None
+    for attempt in range(LOGIN_RETRIES):
+        try:
+            response = _session.post(
+                LOGIN_URL, json=login_payload, timeout=LOGIN_TIMEOUT
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('result') and data.get('token'):
+                    with _token_lock:
+                        _token = data.get('token')
+                    return
             return
+        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as e:
+            last_error = e
+            logger.warning(
+                f"⚠️ Login timeout (attempt {attempt + 1}/{LOGIN_RETRIES}), retrying in {LOGIN_RETRY_DELAY}s..."
+            )
+            if attempt < LOGIN_RETRIES - 1:
+                time.sleep(LOGIN_RETRY_DELAY)
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            logger.warning(
+                f"⚠️ Login request failed (attempt {attempt + 1}/{LOGIN_RETRIES}): {e}"
+            )
+            if attempt < LOGIN_RETRIES - 1:
+                time.sleep(LOGIN_RETRY_DELAY)
 
-    return
+    if last_error:
+        logger.error(f"❌ Failed to get token after {LOGIN_RETRIES} attempts: {last_error}")
 
 def get_pusher_number(label: str):
     for pusher, config in SETTINGS.items():
@@ -108,7 +132,7 @@ def _label_from_purescan_response(product_data: Dict) -> str:
         if category != 'Book' and category != 'DVD' and category != 'Video Game' and category != 'Music':
             return 'Extra'
         else:
-            return f'REJECT {category}'
+            return f'Reject {category}'
 
 
 async def request_purescan(barcode: str) -> Optional[Dict]:
