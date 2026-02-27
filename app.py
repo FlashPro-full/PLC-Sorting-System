@@ -171,7 +171,7 @@ def _handle_purescan_error(barcode, error):
 
 def on_photo_eye_triggered(positionId):
     photo_eye_trigger_time = time.time()
-    print(f"📍PostionId: {positionId}")
+    print(f"📍PositionId: {positionId}")
     barcode = None
     
     with queue_lock:

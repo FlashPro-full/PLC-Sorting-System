@@ -92,15 +92,17 @@ def write_settings(settings=None):
         with open("settings.json", "r") as f:
             settings = json.load(f)
 
+    # From .ckp: Distance Travel 1-8 = DF2-DF9. CLICK DF1=0x7001, DF2=0x7003, ... DF9=0x7011.
+    # Base addresses chosen so (address+1) writes the float to DF2-DF9.
     MODBUS_REGISTERS = {
-        "Pusher 1": 0x7000,
-        "Pusher 2": 0x7002,
-        "Pusher 3": 0x7004,
-        "Pusher 4": 0x7006,
-        "Pusher 5": 0x7008,
-        "Pusher 6": 0x700A,
-        "Pusher 7": 0x700C,
-        "Pusher 8": 0x700E
+        "Pusher 1": 0x7002,   # DF2
+        "Pusher 2": 0x7004,   # DF3
+        "Pusher 3": 0x7006,   # DF4
+        "Pusher 4": 0x7008,   # DF5
+        "Pusher 5": 0x700A,   # DF6
+        "Pusher 6": 0x700C,   # DF7
+        "Pusher 7": 0x700E,   # DF8
+        "Pusher 8": 0x7010,   # DF9
     }
 
     with modbus_lock:
@@ -114,7 +116,7 @@ def write_settings(settings=None):
             high, low = float_to_registers(dist)
             print(f"📝 Writing {pusher}: {dist} → [{high}, {low}] to 0x{address:X}")
             try:
-                plc.write_registers(address + 1, [high, low])
+                plc.write_registers(address + 1, [high, low], slave=UNIT_ID)
             except Exception as e:
                 print(f"❌ Write failed for {pusher}: {e}")
 
@@ -140,8 +142,8 @@ def write_bucket(value, pusher):
             print(f"❌ PLC not connected, attempting to reconnect...")
             plc = connect_plc()
         try:
-            plc.write_register(register_address, pusher)
-            plc.write_register(register_ref, value)
+            plc.write_register(register_address, pusher, slave=UNIT_ID)
+            plc.write_register(register_ref, value, slave=UNIT_ID)
 
             print(f"✅ Updated register 0x{register_ref:04X} with {value}")
             print(f"✅ Wrote pusher {pusher} to register 0x{register_address:04X}")
@@ -158,7 +160,7 @@ def read_photo_eye():
     
     try:
         with modbus_lock:
-            result = plc.read_coils(1, count=1)
+            result = plc.read_coils(1, count=1, slave=UNIT_ID)
             if result and not result.isError():
                 return result.bits[0] if result.bits else 0 
             else:
@@ -192,7 +194,7 @@ def _photo_eye_monitor_loop():
                 with modbus_lock:
                     if plc is not None:
                         try:
-                            result = plc.read_input_registers(0x0015, count=1)
+                            result = plc.read_input_registers(0x0015, count=1, slave=UNIT_ID)
                             if result and not result.isError() and result.registers:
                                 positionId = result.registers[0]
                         except Exception:
