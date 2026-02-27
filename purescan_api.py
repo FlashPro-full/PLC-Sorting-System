@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-LOGIN_URL = os.getenv('PALLETIQ_API_LOGIN_URL')
-DATA_URL_TEMPLATE = os.getenv('PALLETIQ_API_DATA_URL_TEMPLATE')
+LOGIN_URL = os.getenv('PURESCAN_API_LOGIN_URL')
+DATA_URL = os.getenv('PURESCAN_API_DATA_URL')
 EMAIL = os.getenv('EMAIL')
 PASSWORD = os.getenv('PASSWORD')
 
@@ -44,19 +44,20 @@ def init_token():
     global _token
 
     login_payload = {
-        "wl_team_id": 0,
-        "user_email": EMAIL,
-        "user_password": PASSWORD,
+        "email": EMAIL,
+        "password": PASSWORD,
     }
-    
+
     if not LOGIN_URL:
         return
-    
+
     response = _session.post(LOGIN_URL, json=login_payload, timeout=10)
+
     if response.status_code == 200:
         data = response.json()
-        with _token_lock:
-            _token = data.get('token')
+        if data.get('result') and data.get('token'):
+            with _token_lock:
+                _token = data.get('token')
             return
 
     return
@@ -85,18 +86,38 @@ async def _get_async_session():
             return None
     except RuntimeError:
         return None
-    
+
     connector = aiohttp.TCPConnector(limit=100, limit_per_host=50)
     session = aiohttp.ClientSession(connector=connector)
     return session
 
-async def request_palletiq(barcode: str) -> Optional[Dict]: 
+def _label_from_purescan_response(product_data: Dict) -> str:
+    if not product_data.get('result'):
+        return 'Extra'
+    else:
+        scanResult = product_data.get('scanResult') or {}
+        product = scanResult.get('product') or {}
+        fba = scanResult.get('fba') or {}
+        mf = scanResult.get('mf') or {}
+
+        if fba.get('accept') is True:
+            return 'FBA'
+        if mf.get('accept') is True:
+            return 'MF'
+        category = product.get('category')
+        if category != 'Book' and category != 'DVD' and category != 'Video Game' and category != 'Music':
+            return 'Extra'
+        else:
+            return f'REJECT {category}'
+
+
+async def request_purescan(barcode: str) -> Optional[Dict]:
     global _token
-    if not DATA_URL_TEMPLATE:
+    if not DATA_URL:
         return None
-    
+
     current_time = time.time()
-    
+
     if barcode in _api_cache:
         cached_data, cached_time = _api_cache[barcode]
         if current_time - cached_time < _cache_ttl:
@@ -104,43 +125,32 @@ async def request_palletiq(barcode: str) -> Optional[Dict]:
             return cached_data
         else:
             del _api_cache[barcode]
-    
+
     try:
         with _token_lock:
             token = _token
         if not token:
             logger.warning(f"⚠️ No token available for barcode {barcode}")
             return None
-        
+
         async_session = await _get_async_session()
         if not async_session:
             logger.error(f"❌ Failed to get async session for barcode {barcode}")
             return None
-        
-        data_url = DATA_URL_TEMPLATE.format(scan=barcode, token=token)
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {token}',
+        }
+        payload = {'barcode': barcode}
         result = None
 
         try:
-            async with async_session.get(data_url) as response:
+            async with async_session.post(DATA_URL, json=payload, headers=headers) as response:
                 if response.status == 200:
                     product_data = await response.json()
-                    winner = product_data.get('winner')
-                    meta = product_data.get('meta')
-                    label = 'Extra'
-                    
-                    if winner and winner.get('winnerModule'):
-                        label = winner.get('winnerSubModule', 'Extra')
-                    elif meta:
-                        group = meta.get('product_group')
-                        if group == 'Book':
-                            label = 'Reject Book'
-                        elif group == 'Music':
-                            label = 'Reject Music'
-                        elif group == 'DVD':
-                            label = 'Reject DVD'
-                        elif group == 'Video Game':
-                            label = 'Reject Video Game'
-                    
+                    label = _label_from_purescan_response(product_data)
+                    print(label)
                     pusher_data = get_pusher_number(label)
                     _api_cache[barcode] = (pusher_data, current_time)
                     result = pusher_data
@@ -153,25 +163,15 @@ async def request_palletiq(barcode: str) -> Optional[Dict]:
                         with _token_lock:
                             if _token:
                                 logger.info(f"✅ Token refreshed successfully, retrying request")
-                                retry_url = DATA_URL_TEMPLATE.format(scan=barcode, token=_token)
-                                async with async_session.get(retry_url) as retry_response:
+                                headers_retry = {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': f'Bearer {_token}',
+                                }
+                                async with async_session.post(DATA_URL, json=payload, headers=headers_retry) as retry_response:
                                     if retry_response.status == 200:
                                         product_data = await retry_response.json()
-                                        winner = product_data.get('winner')
-                                        meta = product_data.get('meta')
-                                        label = 'Extra'
-                                        if winner and winner.get('winnerModule'):
-                                            label = winner.get('winnerSubModule', 'Extra')
-                                        elif meta:
-                                            group = meta.get('product_group')
-                                            if group == 'Book':
-                                                label = 'Reject Book'
-                                            elif group == 'Music':
-                                                label = 'Reject Music'
-                                            elif group == 'DVD':
-                                                label = 'Reject DVD'
-                                            elif group == 'Video Game':
-                                                label = 'Reject Video Game'
+                                        label = _label_from_purescan_response(product_data)
+                                        print(label)
                                         pusher_data = get_pusher_number(label)
                                         _api_cache[barcode] = (pusher_data, current_time)
                                         result = pusher_data
@@ -188,61 +188,66 @@ async def request_palletiq(barcode: str) -> Optional[Dict]:
                     try:
                         error_body = await response.text()
                         error_data = json.loads(error_body) if error_body else {}
-                        error_msg = error_data.get('error', '')
-                        
-                        if error_msg == "No results":
-                            logger.info(f"ℹ️ PalletIQ API: No results found for barcode {barcode}, using default pusher")
+                        error_msg = error_data.get('error', error_data.get('message', ''))
+
+                        if 'no results' in str(error_msg).lower() or 'not found' in str(error_msg).lower():
+                            logger.info(f"ℹ️ Purescan API: No results found for barcode {barcode}, using default pusher")
                             pusher_data = get_pusher_number('Extra')
                             _api_cache[barcode] = (pusher_data, current_time)
                             result = pusher_data
                         else:
-                            logger.error(f"❌ PalletIQ API returned status 400 (Bad Request) for barcode {barcode}. Error: {error_body}")
+                            logger.error(f"❌ Purescan API returned status 400 for barcode {barcode}. Error: {error_body}")
                             result = None
                     except json.JSONDecodeError:
-                        logger.error(f"❌ PalletIQ API returned status 400 (Bad Request) for barcode {barcode}. Response: {error_body}")
+                        logger.error(f"❌ Purescan API returned status 400 for barcode {barcode}. Response: {error_body}")
                         result = None
                     except Exception as e:
-                        logger.error(f"❌ PalletIQ API returned status 400 (Bad Request) for barcode {barcode}. URL: {data_url}. Exception: {e}")
+                        logger.error(f"❌ Purescan API returned status 400 for barcode {barcode}. Exception: {e}")
                         result = None
+                elif response.status == 404:
+                    label = "Extra"
+                    pusher_data = get_pusher_number(label)
+                    _api_cache[barcode] = (pusher_data, current_time)
+                    result = pusher_data
                 else:
                     try:
                         error_body = await response.text()
-                        logger.warning(f"⚠️ PalletIQ API returned status {response.status} for barcode {barcode}. Response: {error_body}")
-                    except:
-                        logger.warning(f"⚠️ PalletIQ API returned status {response.status} for barcode {barcode}")
+                        logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}. Response: {error_body}")
+                    except Exception:
+                        logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}")
                     result = None
         except asyncio.TimeoutError:
-            logger.error(f"⏱️ Timeout requesting PalletIQ API for barcode {barcode}")
+            logger.error(f"⏱️ Timeout requesting Purescan API for barcode {barcode}")
             result = None
         except aiohttp.ClientError as e:
-            logger.error(f"❌ Client error requesting PalletIQ API for barcode {barcode}: {e}")
+            logger.error(f"❌ Client error requesting Purescan API for barcode {barcode}: {e}")
             result = None
         except Exception as e:
-            logger.error(f"❌ Unexpected error in request_palletiq for barcode {barcode}: {e}", exc_info=True)
+            logger.error(f"❌ Unexpected error in request_purescan for barcode {barcode}: {e}", exc_info=True)
             result = None
         finally:
             if async_session:
                 try:
                     await async_session.close()
-                except:
+                except Exception:
                     pass
-        
+
         return result
     except Exception as e:
-        logger.error(f"❌ Fatal error in request_palletiq for barcode {barcode}: {e}", exc_info=True)
+        logger.error(f"❌ Fatal error in request_purescan for barcode {barcode}: {e}", exc_info=True)
         return None
 
 from promise import Promise
 
-def request_palletiq_async(barcode: str):
-    return Promise(request_palletiq(barcode))
+def request_purescan_async(barcode: str):
+    return Promise(request_purescan(barcode))
 
-def request_palletiq_sync(barcode: str):
+def request_purescan_sync(barcode: str):
     import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        result = loop.run_until_complete(request_palletiq(barcode))
+        result = loop.run_until_complete(request_purescan(barcode))
         return result
     finally:
         loop.close()

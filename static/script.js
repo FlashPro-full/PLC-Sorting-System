@@ -243,10 +243,10 @@ function updateTablePositions() {
 
     frontendItems.forEach((item, barcode) => {
         if (item.status === "routing" || item.status === "completed") {
-            if (!item.routingStartTime) {
-                item.routingStartTime = currentTime;
+            if (!item.start_time) {
+                item.start_time = currentTime;
             }
-            const routingDuration = currentTime - item.routingStartTime;
+            const routingDuration = currentTime - item.start_time;
             if (routingDuration >= 1.5) {
                 itemsToRemove.push(barcode);
             }
@@ -273,7 +273,7 @@ function updateTablePositions() {
         if (distance !== null && positionCm >= distance - COMPLETION_OFFSET && !item.pusherActivated) {
             item.pusherActivated = true;
             item.status = "routing";
-            item.routingStartTime = currentTime;
+            item.start_time = currentTime;
             document.dispatchEvent(new CustomEvent('pusherActivate', {
                 detail: { barcode: barcode, pusher: item.pusher, distance: distance }
             }));
@@ -387,7 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             existingItem.label = data.label;
                             existingItem.distance = data.distance;
                         }
-
+                        console.log(existingItem);
                     }
 
                     updateActiveItemsTableFromFrontendItems();

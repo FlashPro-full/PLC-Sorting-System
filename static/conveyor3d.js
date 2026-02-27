@@ -1015,7 +1015,6 @@ class ConveyorSystem3D {
                     if (pusherNum >= 1 && pusherNum <= 8 && pusherDistance > 0) {
                         const COMPLETION_OFFSET = 3.21;
                         const activationThreshold = pusherDistance - COMPLETION_OFFSET;
-                        console.log('currentPosition', currentPosition, activationThreshold, 'index:', i);
                         if (currentPosition >= activationThreshold - 3.21 && !item.userData.beingPushed) {
                             item.userData.beingPushed = true;
                             this.activatePusher(pusherNum);

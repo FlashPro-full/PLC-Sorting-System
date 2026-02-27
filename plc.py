@@ -3,8 +3,11 @@ import struct
 import time
 import threading
 import atexit
+import dotenv
 import os
 from pymodbus.client import ModbusTcpClient
+
+dotenv.load_dotenv()
 
 PLC_IP = os.getenv('PLC_IP')
 PLC_PORT = int(os.getenv('PLC_PORT', '502'))
@@ -21,7 +24,6 @@ _photo_eye_callbacks = []
 _photo_eye_callbacks_lock = threading.Lock()
 _photo_eye_monitor_thread = None
 _photo_eye_monitor_running = False
-_photo_eye_last_value = 0
 
 def load_settings():
     global SETTINGS
@@ -43,84 +45,23 @@ def connect_plc():
     global plc
     with modbus_lock:
         if plc is not None:
-            is_real_plc = (hasattr(plc, "_socket") or 
-                            hasattr(plc, "_socket") or 
-                            type(plc).__name__ == "ModbusTcpClient")
-            
-            if is_real_plc:
-                if hasattr(plc, 'connected'):
-                    if plc.connected:
-                        try:
-                            test_result = plc.read_coils(PHOTO_EYE_ADDRESS, count=1)
-                            if test_result and not test_result.isError():
-                                return plc
-                        except (OSError, AttributeError, Exception):
-                            pass
-                    try:
-                        if hasattr(plc, 'close'):
-                            plc.close()
-                    except (OSError, AttributeError):
-                        pass
-                    plc = None
-                else:
-                    if hasattr(plc, '_socket') and plc._socket:
-                        try:
-                            test_result = plc.read_coils(PHOTO_EYE_ADDRESS, count=1)
-                            if test_result and not test_result.isError():
-                                return plc
-                        except (OSError, AttributeError, Exception):
-                            pass
-                    try:
-                        if hasattr(plc, 'close'):
-                            plc.close()
-                    except (OSError, AttributeError):
-                        pass
-                    plc = None
+            return
         try:
             plc = ModbusTcpClient(PLC_IP, port=PLC_PORT, timeout=PLC_TIMEOUT)
             connection_result = plc.connect()
 
-            if connection_result:
-                try:
-                    test_result = plc.read_coils(PHOTO_EYE_ADDRESS, count=1)
-                    if test_result and not test_result.isError():
-                        return plc
-                except Exception:
-                    pass
-                return plc
-            else:
+            if not connection_result:
                 plc = None
-                return None
 
         except (ConnectionRefusedError, TimeoutError, OSError, Exception) as e:
             plc = None
-            return None
+
+    return plc
 
 def is_plc_connected():
-    global plc
-    with modbus_lock:
-        if plc is not None:
-            is_real_plc = (hasattr(plc, "_socket") or
-                          hasattr(plc, "socket") or
-                          type(plc).__name__ == 'ModbusTcpClient')
-
-            if is_real_plc:
-                if hasattr(plc, '_socket') and plc._socket is not None:
-                    try:
-                        if hasattr(plc._socket, 'fileno'):
-                            plc._socket.fileno()
-                            return True
-                    except:
-                        pass
-                if hasattr(plc, 'connected') and plc.connected:
-                    return True
-                try:
-                    result = plc.read_coils(PHOTO_EYE_ADDRESS, count=1)
-                    if result and not result.isError():
-                        return True
-                except:
-                    pass
-        return False
+    if plc is not None:
+        return True
+    return False
 
 def reset_plc():
     global plc
@@ -136,56 +77,20 @@ def reset_plc():
 @atexit.register
 def cleanup_modbus():
     global plc
-    try:
-        lock_acquired = False
-        try:
-            lock_acquired = modbus_lock.acquire(blocking = False)
-        except (KeyboardInterrupt, SystemExit, RuntimeError):
-            lock_acquired = False
-        
-        try:
-            current_plc = plc
-            if current_plc:
-                try:
-                    if hasattr(current_plc, 'close'):
-                        try:
-                            current_plc.close()
-                        except (OSError, AttributeError, KeyboardInterrupt, SystemExit):
-                            pass
-                except (KeyboardInterrupt, SystemExit):
-                    pass
-                except Exception:
-                    pass
-                if lock_acquired:
-                    plc = None
-        except (KeyboardInterrupt, SystemExit):
-            pass
-        except Exception:
-            pass
-        finally:
-            if lock_acquired:
-                try:
-                    modbus_lock.release()
-                except:
-                    pass
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    except Exception:
-        pass
+    if plc and plc.connected:
+        print("🔌 Closing Modbus connection...")
+        plc.close()
+    
+    plc = None
 
 def float_to_registers(value):
     packed = struct.pack('>f', float(value))
     return struct.unpack('>HH', packed)
 
 def write_settings(settings=None):
-    global SETTINGS
     if not settings:
-        with _settings_lock:
-            try:
-                with open("settings.json", "r") as f:
-                    settings = json.load(f)
-            except Exception:
-                settings = SETTINGS.copy() if SETTINGS else {}
+        with open("settings.json", "r") as f:
+            settings = json.load(f)
 
     MODBUS_REGISTERS = {
         "Pusher 1": 0x7000,
@@ -197,7 +102,11 @@ def write_settings(settings=None):
         "Pusher 7": 0x700C,
         "Pusher 8": 0x700E
     }
+
     with modbus_lock:
+        if plc is None:
+            plc = connect_plc()
+
         for pusher, address in MODBUS_REGISTERS.items():
             if pusher not in settings:
                 continue
@@ -205,10 +114,9 @@ def write_settings(settings=None):
             high, low = float_to_registers(dist)
             print(f"📝 Writing {pusher}: {dist} → [{high}, {low}] to 0x{address:X}")
             try:
-                plc.write_registers(address + 1, [high, low], unit=UNIT_ID)
+                plc.write_registers(address + 1, [high, low])
             except Exception as e:
-                print(f"❌ Error writing {pusher}: {e}")
-        plc.close()
+                print(f"❌ Write failed for {pusher}: {e}")
 
     load_settings()
 
@@ -230,34 +138,23 @@ def write_bucket(value, pusher):
     with modbus_lock:
         if plc is None:
             print(f"❌ PLC not connected, attempting to reconnect...")
-            connect_plc()
-        
-        if plc is None:
-            print(f"❌ Modbus write error: PLC not connected")
-            return -1
-        
+            plc = connect_plc()
         try:
-            if not is_plc_connected():
-                print(f"❌ PLC connection lost, attempting to reconnect...")
-                connect_plc()
-                if plc is None:
-                    print(f"❌ Modbus write error: Failed to reconnect PLC")
-                    return -1
-            
-            plc.write_register(register_address, pusher, unit=UNIT_ID)
-            plc.write_register(register_ref, value, unit=UNIT_ID)
+            plc.write_register(register_address, pusher)
+            plc.write_register(register_ref, value)
 
             print(f"✅ Updated register 0x{register_ref:04X} with {value}")
             print(f"✅ Wrote pusher {pusher} to register 0x{register_address:04X}")
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
-            return -1
 
     return 1
 
 def read_photo_eye():
+    global plc
+
     if plc is None:
-        return None
+        plc = connect_plc()
     
     try:
         with modbus_lock:
@@ -284,19 +181,13 @@ def disconnect_photo_eye_signal(callback):
             _photo_eye_callbacks.remove(callback)
 
 def _photo_eye_monitor_loop():
-    global _photo_eye_last_value, _photo_eye_monitor_running
-    _photo_eye_last_value = 0
-    
-    positionId = 0
-    
+    last_value = 0
+    last_positionId = 0
     while _photo_eye_monitor_running:
         try:
             current_value = read_photo_eye()
 
-            if _photo_eye_last_value == 0 and current_value == 1:
-                with _photo_eye_callbacks_lock:
-                    callbacks = _photo_eye_callbacks.copy()
-                
+            if current_value == 1 and last_value == 0:
                 positionId = 0
                 with modbus_lock:
                     if plc is not None:
@@ -304,24 +195,21 @@ def _photo_eye_monitor_loop():
                             result = plc.read_input_registers(0x0015, count=1)
                             if result and not result.isError() and result.registers:
                                 positionId = result.registers[0]
-                            else:
-                                print(f"❌ Error reading position ID from 0x0015")
-                                positionId = 0
-                        except Exception as e:
-                            print(f"❌ Exception reading position ID: {e}")
+                        except Exception:
                             positionId = 0
-                
-                for callback in callbacks:
-                    try:
-                        threading.Thread(target=callback, args=(positionId,), daemon=True).start()
-                    except:
-                        pass
+
+                        if positionId != last_positionId:
+                            for callback in _photo_eye_callbacks:
+                                try:
+                                    threading.Thread(target=callback, args=(positionId,), daemon=True).start()
+                                except:
+                                    pass
             
-            _photo_eye_last_value = current_value
-            
+            last_value = current_value
+            last_positionId = positionId
             time.sleep(0.01)
         except:
-            time.sleep(0.1)
+            print(f"❌ Photo eye monitor loop error")
 
 def start_photo_eye_monitor():
     global _photo_eye_monitor_thread, _photo_eye_monitor_running
