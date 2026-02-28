@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, jsonify
 from flask_socketio import SocketIO  # type: ignore[import-untyped]
 from dotenv import load_dotenv
 import os
@@ -266,6 +266,19 @@ def main():
     
     connect_barcode_signal(on_barcode_scanned)
     connect_photo_eye_signal(on_photo_eye_triggered)
+
+@app.route('/api/system-status', methods=['GET'])
+def api_system_status():
+    try:
+        status = check_connections()
+        return jsonify({
+            "plc": {"connected": status.get("plc", False), "message": "Connected" if status.get("plc") else "Disconnected"},
+            "scanner": {"connected": status.get("barcode_scanner", False), "message": "Connected" if status.get("barcode_scanner") else "Disconnected", "mode": os.getenv("SCAN_MODE", "KEYBOARD")},
+            "photo_eye": status.get("photo_eye", {"connected": False, "message": "Not Ready"})
+        })
+    except Exception:
+        return jsonify({"plc": {"connected": False, "message": "Error"}, "scanner": {"connected": False, "message": "Error"}, "photo_eye": {"connected": False, "message": "Error"}}), 500
+
 
 app.register_blueprint(scan_bp)
 app.register_blueprint(settings_bp)

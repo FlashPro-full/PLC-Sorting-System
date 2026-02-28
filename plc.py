@@ -45,7 +45,7 @@ def connect_plc():
     global plc
     with modbus_lock:
         if plc is not None:
-            return
+            return plc
         try:
             plc = ModbusTcpClient(PLC_IP, port=PLC_PORT, timeout=PLC_TIMEOUT)
             connection_result = plc.connect()
@@ -130,7 +130,7 @@ def write_bucket(value, pusher):
         return -1
 
     register_address = 0x0064 + (value - 101)
-    register_ref = 0x0013
+    register_ref = 0x0000
 
     pusher_key = f"Pusher {pusher}"
     if pusher_key not in SETTINGS:
@@ -185,8 +185,16 @@ def disconnect_photo_eye_signal(callback):
 def _photo_eye_monitor_loop():
     last_value = 0
     last_positionId = 0
+    positionId = 0
+    last_error_log = 0.0
+    reconnect_interval = 2.0
     while _photo_eye_monitor_running:
         try:
+            if plc is None:
+                connect_plc()
+                if plc is None:
+                    time.sleep(reconnect_interval)
+                    continue
             current_value = read_photo_eye()
 
             if current_value == 1 and last_value == 0:
@@ -206,12 +214,16 @@ def _photo_eye_monitor_loop():
                                     threading.Thread(target=callback, args=(positionId,), daemon=True).start()
                                 except:
                                     pass
-            
+
             last_value = current_value
             last_positionId = positionId
             time.sleep(0.01)
-        except:
-            print(f"❌ Photo eye monitor loop error")
+        except Exception:
+            now = time.time()
+            if now - last_error_log >= 30.0:
+                last_error_log = now
+                print("❌ Photo eye monitor loop error (PLC may be disconnected)")
+            time.sleep(reconnect_interval)
 
 def start_photo_eye_monitor():
     global _photo_eye_monitor_thread, _photo_eye_monitor_running
