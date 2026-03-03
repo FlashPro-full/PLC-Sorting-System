@@ -101,6 +101,7 @@ def registers_to_float_click_order(reg0, reg1):
     return struct.unpack('>f', packed)[0]
 
 SPEED_DF20_FIRST_REG = 0x7027
+SPEED_DF20_ALT_REG = 0x7026
 
 def write_settings(settings=None):
     global plc
@@ -136,6 +137,14 @@ def write_settings(settings=None):
 
     load_settings()
 
+def _decode_speed_registers(r0, r1):
+    v_high = registers_to_float(r0, r1)
+    v_low = registers_to_float_click_order(r0, r1)
+    for v in (v_high, v_low):
+        if 0.1 <= v <= 1000.0:
+            return round(v, 3)
+    return round(v_high, 3)
+
 def read_belt_speed():
     global plc
     with modbus_lock:
@@ -143,13 +152,16 @@ def read_belt_speed():
             plc = connect_plc()
         if plc is None:
             return None
-        try:
-            result = plc.read_holding_registers(SPEED_DF20_FIRST_REG, count=2, slave=UNIT_ID)
-            if result and not result.isError() and len(result.registers) >= 2:
-                r0, r1 = result.registers[0], result.registers[1]
-                return round(registers_to_float_click_order(r0, r1), 3)
-        except Exception:
-            pass
+        for addr in (SPEED_DF20_ALT_REG, SPEED_DF20_FIRST_REG):
+            try:
+                result = plc.read_holding_registers(addr, count=2, slave=UNIT_ID)
+                if result and not result.isError() and len(result.registers) >= 2:
+                    r0, r1 = result.registers[0], result.registers[1]
+                    value = _decode_speed_registers(r0, r1)
+                    if value != 0:
+                        return value
+            except Exception:
+                pass
     return None
 
 def write_belt_speed(speed):
@@ -162,10 +174,10 @@ def write_belt_speed(speed):
         try:
             speed_f = float(speed)
             high, low = float_to_registers(speed_f)
-            plc.write_registers(SPEED_DF20_FIRST_REG, [high, low], slave=UNIT_ID)
-            print(f"📝 Belt speed written to DF20: {speed_f} → [{high}, {low}]", flush=True)
+            plc.write_registers(SPEED_DF20_ALT_REG, [high, low], slave=UNIT_ID)
+            print(f"📝 Belt speed written to DF20: {speed_f} → [{high}, {low}] @ 0x{SPEED_DF20_ALT_REG:X}", flush=True)
             try:
-                rr = plc.read_holding_registers(SPEED_DF20_FIRST_REG, count=2, slave=UNIT_ID)
+                rr = plc.read_holding_registers(SPEED_DF20_ALT_REG, count=2, slave=UNIT_ID)
                 if rr and not rr.isError() and len(rr.registers) >= 2:
                     r0, r1 = rr.registers[0], rr.registers[1]
                     as_high_first = registers_to_float(r0, r1)
