@@ -1,7 +1,6 @@
 from flask import Flask, jsonify
 from flask_socketio import SocketIO  # type: ignore[import-untyped]
 from dotenv import load_dotenv
-import atexit
 import os
 import sys
 import time
@@ -233,9 +232,17 @@ def broadcast_system_status():
     except Exception:
         pass
 
+_client_already_connected = False
+
+@app.before_request
+def _mark_client_connected():
+    global _client_already_connected
+    _client_already_connected = True
+
 @socketio.on('connect')
 def handle_connect():
-    global _test_signals_started
+    global _test_signals_started, _client_already_connected
+    _client_already_connected = True
     broadcast_system_status()
     
     # if not _test_signals_started:
@@ -300,27 +307,15 @@ if __name__ == '__main__':
     print("=" * 60, flush=True)
     sys.stdout.flush()
     
-    _browser_lock_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".browser_opened_{port}")
-
     def open_browser():
         time.sleep(1.5)
-        if os.path.isfile(_browser_lock_file):
+        if _client_already_connected:
             return
         try:
             webbrowser.open(f"http://localhost:{port}")
-            with open(_browser_lock_file, "w") as _:
-                pass
         except Exception:
             pass
 
-    def _remove_browser_lock():
-        try:
-            if os.path.isfile(_browser_lock_file):
-                os.remove(_browser_lock_file)
-        except Exception:
-            pass
-
-    atexit.register(_remove_browser_lock)
     browser_thread = threading.Thread(target=open_browser, daemon=True)
     browser_thread.start()
     
