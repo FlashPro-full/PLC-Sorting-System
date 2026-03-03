@@ -88,6 +88,8 @@ def float_to_registers(value):
     return struct.unpack('>HH', packed)
 
 def write_settings(settings=None):
+    global plc
+    
     if not settings:
         with open("settings.json", "r") as f:
             settings = json.load(f)
