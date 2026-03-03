@@ -146,7 +146,8 @@ def read_belt_speed():
         try:
             result = plc.read_holding_registers(SPEED_DF20_FIRST_REG, count=2, slave=UNIT_ID)
             if result and not result.isError() and len(result.registers) >= 2:
-                return round(registers_to_float(result.registers[0], result.registers[1]), 3)
+                r0, r1 = result.registers[0], result.registers[1]
+                return round(registers_to_float_click_order(r0, r1), 3)
         except Exception:
             pass
     return None
@@ -163,6 +164,15 @@ def write_belt_speed(speed):
             high, low = float_to_registers(speed_f)
             plc.write_registers(SPEED_DF20_FIRST_REG, [high, low], slave=UNIT_ID)
             print(f"📝 Belt speed written to DF20: {speed_f} → [{high}, {low}]", flush=True)
+            try:
+                rr = plc.read_holding_registers(SPEED_DF20_FIRST_REG, count=2, slave=UNIT_ID)
+                if rr and not rr.isError() and len(rr.registers) >= 2:
+                    r0, r1 = rr.registers[0], rr.registers[1]
+                    as_high_first = registers_to_float(r0, r1)
+                    as_low_first = registers_to_float_click_order(r0, r1)
+                    print(f"   Read back: regs=[{r0}, {r1}] → high_first={as_high_first:.3f}, low_first={as_low_first:.3f}", flush=True)
+            except Exception:
+                pass
             return True
         except Exception as e:
             print(f"❌ Belt speed write failed: {e}", flush=True)
