@@ -305,13 +305,26 @@ button:active,
     justify-content: flex-end;
 }
 
-/* Settings tabs */
+/* Settings page: body wrapper and scroll */
+.settings-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+}
 .settings-tabs {
     display: flex;
     gap: 4px;
+    flex-shrink: 0;
     margin-bottom: 16px;
     border-bottom: 2px solid var(--border);
     padding-bottom: 0;
+}
+.settings-panels-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
 .settings-tab {
     padding: 12px 20px;
@@ -337,9 +350,13 @@ button:active,
 }
 .settings-tab-panel {
     display: block;
+    padding-bottom: 24px;
 }
 .settings-tab-panel.hidden {
     display: none;
+}
+.settings-intro-card {
+    margin-bottom: 28px;
 }
 
 @media (max-width: 768px) {

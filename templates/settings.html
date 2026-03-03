@@ -19,20 +19,22 @@
             </div>
         </header>
 
-        <div class="settings-tabs" role="tablist">
-            <button type="button" class="settings-tab active" data-tab="bucket-distance" role="tab" aria-selected="true">Bucket distance</button>
-            <button type="button" class="settings-tab" data-tab="belt-speed" role="tab" aria-selected="false">Belt speed</button>
-        </div>
+        <div class="settings-body">
+            <div class="settings-tabs" role="tablist">
+                <button type="button" class="settings-tab active" data-tab="bucket-distance" role="tab" aria-selected="true" aria-controls="tab-bucket-distance" id="tab-btn-bucket-distance">Bucket distance</button>
+                <button type="button" class="settings-tab" data-tab="belt-speed" role="tab" aria-selected="false" aria-controls="tab-belt-speed" id="tab-btn-belt-speed">Belt speed</button>
+            </div>
 
-        <div id="tab-bucket-distance" class="settings-tab-panel" role="tabpanel">
-            <form id="settingsForm" class="split-layout">
-                <div class="card">
-                    <p style="margin:0;color:var(--muted);font-size:0.95rem;">
-                        Map PureScan labels to conveyor pushers and set travel distance (cm) per pusher. Written to PLC DF2–DF9.
-                    </p>
-                </div>
+            <div class="settings-panels-scroll">
+                <div id="tab-bucket-distance" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-btn-bucket-distance" aria-hidden="false">
+                    <form id="settingsForm" class="split-layout">
+                        <div class="card settings-intro-card">
+                            <p style="margin:0;color:var(--muted);font-size:0.95rem;">
+                                Map PureScan labels to conveyor pushers and set travel distance (cm) per pusher. Written to PLC DF2–DF9.
+                            </p>
+                        </div>
 
-                <div id="pusherSettings" class="pusher-grid">
+                        <div id="pusherSettings" class="pusher-grid">
                     {% for pusher in pushers %}
                         <fieldset class="fieldset-card">
                             <legend>{{ pusher }}</legend>
@@ -56,9 +58,9 @@
                     <button type="submit">Save Changes</button>
                 </div>
             </form>
-        </div>
+                </div>
 
-        <div id="tab-belt-speed" class="settings-tab-panel hidden" role="tabpanel">
+                <div id="tab-belt-speed" class="settings-tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-belt-speed" aria-hidden="true">
             <div class="card" style="max-width: 480px;">
                 <p style="margin:0 0 16px;color:var(--muted);font-size:0.95rem;">
                     Conveyor belt speed (PLC <strong>DF20 – Speed</strong>). Used for timing; unit matches ladder (e.g. cm/s).
@@ -71,6 +73,8 @@
                     </div>
                 </form>
                 <p id="beltSpeedSource" style="margin: 8px 0 0; font-size: 0.85rem; color: var(--muted);"></p>
+            </div>
+                </div>
             </div>
         </div>
     </main>

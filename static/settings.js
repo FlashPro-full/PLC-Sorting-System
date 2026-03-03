@@ -4,17 +4,20 @@ document.addEventListener("DOMContentLoaded", function () {
     const beltSpeedInput = document.getElementById("beltSpeedInput");
     const beltSpeedSource = document.getElementById("beltSpeedSource");
 
-    // Tab switching
+    // Tab switching (fix navigation: aria-hidden, focus, single scroll container)
     document.querySelectorAll(".settings-tab").forEach(function (tab) {
         tab.addEventListener("click", function () {
-            const targetId = "tab-" + tab.getAttribute("data-tab");
+            var targetId = "tab-" + tab.getAttribute("data-tab");
             document.querySelectorAll(".settings-tab").forEach(function (t) {
                 t.classList.toggle("active", t === tab);
                 t.setAttribute("aria-selected", t === tab ? "true" : "false");
             });
             document.querySelectorAll(".settings-tab-panel").forEach(function (panel) {
-                panel.classList.toggle("hidden", panel.id !== targetId);
+                var isActive = panel.id === targetId;
+                panel.classList.toggle("hidden", !isActive);
+                panel.setAttribute("aria-hidden", isActive ? "false" : "true");
             });
+            tab.focus();
         });
     });
 
