@@ -91,7 +91,15 @@ def registers_to_float(high, low):
     packed = struct.pack('>HH', high, low)
     return struct.unpack('>f', packed)[0]
 
-# CLICK DF20 = Speed (belt/conveyor speed), Modbus first register 0x7027
+def float_to_registers_click_order(value):
+    packed = struct.pack('>f', float(value))
+    high, low = struct.unpack('>HH', packed)
+    return [low, high]
+
+def registers_to_float_click_order(reg0, reg1):
+    packed = struct.pack('>HH', reg1, reg0)
+    return struct.unpack('>f', packed)[0]
+
 SPEED_DF20_FIRST_REG = 0x7027
 
 def write_settings(settings=None):
@@ -138,7 +146,7 @@ def read_belt_speed():
         try:
             result = plc.read_holding_registers(SPEED_DF20_FIRST_REG, count=2, slave=UNIT_ID)
             if result and not result.isError() and len(result.registers) >= 2:
-                return round(registers_to_float(result.registers[0], result.registers[1]), 3)
+                return round(registers_to_float_click_order(result.registers[0], result.registers[1]), 3)
         except Exception:
             pass
     return None
@@ -151,10 +159,13 @@ def write_belt_speed(speed):
         if plc is None:
             return False
         try:
-            high, low = float_to_registers(float(speed))
-            plc.write_registers(SPEED_DF20_FIRST_REG, [high, low], slave=UNIT_ID)
+            speed_f = float(speed)
+            regs = float_to_registers_click_order(speed_f)
+            plc.write_registers(SPEED_DF20_FIRST_REG, regs, slave=UNIT_ID)
+            print(f"📝 Belt speed written to DF20: {speed_f} → registers {regs}", flush=True)
             return True
-        except Exception:
+        except Exception as e:
+            print(f"❌ Belt speed write failed: {e}", flush=True)
             return False
 
 def write_bucket(value, pusher):
