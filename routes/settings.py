@@ -43,3 +43,35 @@ def update_settings():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@settings_bp.route('/get-belt-speed', methods=['GET'])
+def get_belt_speed():
+    from plc import read_belt_speed
+    try:
+        speed = read_belt_speed()
+        if speed is not None:
+            return jsonify({"speed": speed, "source": "plc"})
+        # Default from app if PLC not connected (matches booksorter DF20 usage)
+        default = 32.1
+        return jsonify({"speed": default, "source": "default"})
+    except Exception as e:
+        return jsonify({"speed": 32.1, "source": "default", "error": str(e)})
+
+
+@settings_bp.route('/update-belt-speed', methods=['POST'])
+def update_belt_speed():
+    from plc import write_belt_speed
+    data = request.json or {}
+    try:
+        speed = float(data.get("speed", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid speed value"}), 400
+    if speed <= 0:
+        return jsonify({"error": "Speed must be positive"}), 400
+    try:
+        if write_belt_speed(speed):
+            return jsonify({"message": "Belt speed updated successfully!", "speed": speed})
+        return jsonify({"error": "PLC not connected"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+

@@ -87,15 +87,19 @@ def float_to_registers(value):
     packed = struct.pack('>f', float(value))
     return struct.unpack('>HH', packed)
 
+def registers_to_float(high, low):
+    packed = struct.pack('>HH', high, low)
+    return struct.unpack('>f', packed)[0]
+
+# CLICK DF20 = Speed (belt/conveyor speed), Modbus first register 0x7027
+SPEED_DF20_FIRST_REG = 0x7027
+
 def write_settings(settings=None):
     global plc
-    
     if not settings:
         with open("settings.json", "r") as f:
             settings = json.load(f)
 
-    # From .ckp: Distance Travel 1-8 = DF2-DF9. CLICK DF1=0x7001, DF2=0x7003, ... DF9=0x7011.
-    # Base addresses chosen so (address+1) writes the float to DF2-DF9.
     MODBUS_REGISTERS = {
         "Pusher 1": 0x7002,   # DF2
         "Pusher 2": 0x7004,   # DF3
@@ -123,6 +127,35 @@ def write_settings(settings=None):
                 print(f"❌ Write failed for {pusher}: {e}")
 
     load_settings()
+
+def read_belt_speed():
+    global plc
+    with modbus_lock:
+        if plc is None:
+            plc = connect_plc()
+        if plc is None:
+            return None
+        try:
+            result = plc.read_holding_registers(SPEED_DF20_FIRST_REG, count=2, slave=UNIT_ID)
+            if result and not result.isError() and len(result.registers) >= 2:
+                return round(registers_to_float(result.registers[0], result.registers[1]), 3)
+        except Exception:
+            pass
+    return None
+
+def write_belt_speed(speed):
+    global plc
+    with modbus_lock:
+        if plc is None:
+            plc = connect_plc()
+        if plc is None:
+            return False
+        try:
+            high, low = float_to_registers(float(speed))
+            plc.write_registers(SPEED_DF20_FIRST_REG, [high, low], slave=UNIT_ID)
+            return True
+        except Exception:
+            return False
 
 def write_bucket(value, pusher):
     global plc

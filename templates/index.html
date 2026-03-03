@@ -25,7 +25,10 @@
         <header class="app-header">
             <h1 class="app-title">🎮 Live Conveyor System</h1>
             <div class="app-actions">
-                <a href="/settings" style="margin-right: 16px; font-weight: 500; color: var(--accent, #3a7afe); text-decoration: none;">Settings</a>
+                <a href="/settings" class="nav-btn nav-btn-settings" title="Configure bucket distances and belt speed">
+                    <span class="nav-btn-icon" aria-hidden="true">⚙️</span>
+                    <span>Settings</span>
+                </a>
                 <div id="status-indicators" style="display: flex; gap: 12px; align-items: center; font-size: 0.9em; flex-wrap: wrap;">
                     <span id="plc-status" style="padding: 6px 12px; border-radius: 6px; background: #666; color: #fff; font-weight: 500; transition: all 0.3s ease;">
                         <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; opacity: 0.5;"></span>
