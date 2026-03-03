@@ -1,6 +1,7 @@
 from flask import Flask, jsonify
 from flask_socketio import SocketIO  # type: ignore[import-untyped]
 from dotenv import load_dotenv
+import atexit
 import os
 import sys
 import time
@@ -299,10 +300,27 @@ if __name__ == '__main__':
     print("=" * 60, flush=True)
     sys.stdout.flush()
     
+    _browser_lock_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".browser_opened_{port}")
+
     def open_browser():
         time.sleep(1.5)
-        webbrowser.open(f"http://localhost:{port}")
-    
+        if os.path.isfile(_browser_lock_file):
+            return
+        try:
+            webbrowser.open(f"http://localhost:{port}")
+            with open(_browser_lock_file, "w") as _:
+                pass
+        except Exception:
+            pass
+
+    def _remove_browser_lock():
+        try:
+            if os.path.isfile(_browser_lock_file):
+                os.remove(_browser_lock_file)
+        except Exception:
+            pass
+
+    atexit.register(_remove_browser_lock)
     browser_thread = threading.Thread(target=open_browser, daemon=True)
     browser_thread.start()
     
