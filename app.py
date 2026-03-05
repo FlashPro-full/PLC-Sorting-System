@@ -1,6 +1,6 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify #type: ignore
 from flask_socketio import SocketIO  # type: ignore[import-untyped]
-from dotenv import load_dotenv
+from dotenv import load_dotenv #type: ignore
 import os
 import sys
 import time

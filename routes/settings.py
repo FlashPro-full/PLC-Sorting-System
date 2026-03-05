@@ -1,6 +1,5 @@
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, request, jsonify, render_template #type: ignore
 import json
-import os
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -28,10 +27,10 @@ def get_settings():
 @settings_bp.route('/update-pushers', methods=['POST'])
 def update_pushers():
     data = request.json or {}
-    pushers = data.get("pushers")
+    pushers = data.get("pushers", {})
     settings = {}
     
-    if not isinstance(new_settings, dict):
+    if not isinstance(pushers, dict):
         return jsonify({"error": "Invalid input format"}), 400
     
     try:

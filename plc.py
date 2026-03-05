@@ -1,11 +1,10 @@
 import json
-import struct
 import time
 import threading
 import atexit
-import dotenv
+import dotenv #type: ignore
 import os
-from pymodbus.client import ModbusTcpClient
+from pymodbus.client import ModbusTcpClient #type: ignore
 
 dotenv.load_dotenv()
 
