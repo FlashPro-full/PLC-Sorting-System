@@ -30,7 +30,6 @@ positionId = 100
 
 max_distance = 972
 max_pusher = 8
-_test_signals_started = False
 
 INTERVAL_100MS = 0.1
 _timer_thread = None
