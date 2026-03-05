@@ -107,23 +107,20 @@ def write_bucket(pusher):
 
     return 1
 
+C1_REGISTER_ADDRESS = int(os.getenv('C1_REGISTER_ADDRESS', '0'))
+
 def read_photo_eye():
     global plc
-
     if plc is None:
         plc = connect_plc()
-    
     try:
         with modbus_lock:
-            result = plc.read_coils(1, count=1, slave=UNIT_ID)
-            if result and not result.isError():
-                return result.bits[0] if result.bits else 0 
-            else:
-                print(f"Photo eye blocked")
-                return None
+            result = plc.read_holding_registers(C1_REGISTER_ADDRESS, count=1, slave=UNIT_ID)
+            if result and not result.isError() and result.registers:
+                return 1 if (result.registers[0] & 1) else 0
+            return None
     except Exception:
         pass
-    
     return 0
 
 def connect_photo_eye_signal(callback):

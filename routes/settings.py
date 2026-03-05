@@ -38,7 +38,7 @@ def update_pushers():
         with open("settings.json", "r") as f:
             settings = json.load(f)
         with open("settings.json", "w") as f:
-            json.dump({...settings, "pushers": pushers}, f, indent=2)
+            json.dump({**settings, "pushers": pushers}, f, indent=2)
         return jsonify({"message": "Pushers updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -57,7 +57,7 @@ def update_belt_speed():
         with open("settings.json", "r") as f:
             settings = json.load(f)
         with open("settings.json", "w") as f:
-            json.dump({...settings, "belt_speed": speed}, f, indent=2)
+            json.dump({**settings, "belt_speed": speed}, f, indent=2)
         return jsonify({"message": "Belt speed updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
