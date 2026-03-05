@@ -26,6 +26,8 @@ queue_lock = threading.Lock()
 book_dict: Dict[str, dict] = {}
 book_dict_lock = threading.Lock()
 
+positionId = 100
+
 max_distance = 972
 max_pusher = 8
 _test_signals_started = False
@@ -199,7 +201,12 @@ def _handle_purescan_error(barcode, error):
         promise.then(on_success_retry).catch(on_error_retry)
         return
 
-def on_photo_eye_triggered(positionId):
+def on_photo_eye_triggered():
+    global positionId
+    positionId += 1
+    if positionId > 150:
+        positionId = 101
+    
     photo_eye_trigger_time = time.time()
     barcode = None
     belt_speed = 32.1
@@ -270,7 +277,7 @@ def _mark_client_connected():
 
 @socketio.on('connect')
 def handle_connect():
-    global _test_signals_started, _client_already_connected
+    global _client_already_connected
     _client_already_connected = True
     broadcast_system_status()
 

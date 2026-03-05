@@ -36,8 +36,9 @@ document.addEventListener("DOMContentLoaded", function () {
                     if (distanceInput) distanceInput.value = pusherSettings.distance;
                 }
             });
-            if (beltSpeedInput && settings.belt_speed != null) {
-                beltSpeedInput.value = settings.belt_speed;
+            if (beltSpeedInput) {
+                var speed = settings.belt_speed;
+                beltSpeedInput.value = (speed != null && speed !== "") ? Number(speed) : "";
             }
             if (beltSpeedSource) {
                 beltSpeedSource.textContent = "From settings.";
