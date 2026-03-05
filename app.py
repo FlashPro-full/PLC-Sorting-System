@@ -7,6 +7,7 @@ import time
 import threading
 import webbrowser
 from datetime import datetime
+import json
 from typing import Dict
 from collections import deque
 
@@ -25,10 +26,14 @@ queue_lock = threading.Lock()
 book_dict: Dict[str, dict] = {}
 book_dict_lock = threading.Lock()
 
-belt_speed = 32.1
 max_distance = 972
 max_pusher = 8
 _test_signals_started = False
+
+INTERVAL_100MS = 0.1
+_timer_thread = None
+_timer_running = False
+_timer_lock = threading.Lock()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
@@ -38,6 +43,48 @@ _pending_requests = set()
 _pending_lock = threading.Lock()
 _request_start_times = {}
 _request_times_lock = threading.Lock()
+
+
+def on_interval_100ms():
+    current_time = time.time()
+    to_remove = []
+    with book_dict_lock:
+        for barcode in list(book_dict):
+            item = book_dict.get(barcode)
+            if not item:
+                continue
+            if (item.get("status") == "progress"
+                    and item.get("push_time") is not None
+                    and current_time >= item.get("push_time")
+                    and item.get("positionId") is not None
+                    and item.get("pusher") is not None):
+                write_bucket(item.get("pusher"))
+                to_remove.append(barcode)
+        for barcode in to_remove:
+            del book_dict[barcode]
+
+def _timer_loop():
+    while _timer_running:
+        tick_start = time.perf_counter()
+        try:
+            on_interval_100ms()
+        except Exception:
+            pass
+        elapsed = time.perf_counter() - tick_start
+        sleep_time = max(0.0, INTERVAL_100MS - elapsed)
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+
+
+def start_interval_timer():
+    global _timer_thread, _timer_running
+    with _timer_lock:
+        if _timer_thread is not None and _timer_thread.is_alive():
+            return
+        _timer_running = True
+    _timer_thread = threading.Thread(target=_timer_loop, daemon=True)
+    _timer_thread.start()
+
 
 def on_barcode_scanned(barcode):
     scan_time = time.time()
@@ -90,19 +137,6 @@ def on_barcode_scanned(barcode):
     
     sys.stdout.flush()
 
-def _try_write_bucket_and_remove(barcode):
-    with book_dict_lock:
-        if barcode not in book_dict:
-            return
-        
-        item = book_dict[barcode]
-        positionId = item.get("positionId")
-        pusher = item.get("pusher")
-        
-        if positionId is not None and pusher is not None:
-            write_bucket(positionId, pusher)
-            del book_dict[barcode]
-
 def on_purescan_response(barcode, response):
     if not response:
         return
@@ -120,10 +154,6 @@ def on_purescan_response(barcode, response):
             book_dict[barcode]["distance"] = distance
 
     socketio.emit('update_book', book_dict[barcode])
-    
-    print(f"✅ PureScan Response - Barcode: {barcode}, Label: {label}, Pusher: {pusher}, Distance: {distance}", flush=True)
-    
-    _try_write_bucket_and_remove(barcode)
 
 def _handle_purescan_error(barcode, error):
     if not barcode:
@@ -158,8 +188,8 @@ def _handle_purescan_error(barcode, error):
                         book_dict[barcode]["label"] = "Extra"
                         book_dict[barcode]["distance"] = max_distance
                         book_dict[barcode]["pusher"] = max_pusher
-                        socketio.emit('update_book', book_dict[barcode])
-                _try_write_bucket_and_remove(barcode)
+                        
+                socketio.emit('update_book', book_dict[barcode])
         
         def on_error_retry(error):
             with _pending_lock:
@@ -171,27 +201,26 @@ def _handle_purescan_error(barcode, error):
 
 def on_photo_eye_triggered(positionId):
     photo_eye_trigger_time = time.time()
-    print(f"📍PositionId: {positionId}")
     barcode = None
+    belt_speed = 32.1
     
     with queue_lock:
         if len(barcode_queue) > 0:
             item = barcode_queue.popleft()
             if item:
                 barcode = item.get("barcode")
-        # else:
-        #     print(f"⚠️ Photo eye triggered at position {positionId} but barcode_queue is empty", flush=True)
+    
+    with open("settings.json", "r") as f:
+        belt_speed = json.load(f)['belt_speed']
+    
     if barcode:  
         with book_dict_lock:
             book_dict[barcode]["positionId"] = positionId
             book_dict[barcode]["status"] = "progress"
             book_dict[barcode]["start_time"] = photo_eye_trigger_time
+            book_dict[barcode]["push_time"] = photo_eye_trigger_time + (book_dict[barcode]["distance"] / belt_speed)
     
         socketio.emit('update_book', book_dict[barcode])
-        
-        _try_write_bucket_and_remove(barcode)
-
-        # print(f"✅ Photo eye processed - Barcode: {barcode}, Position: {positionId}", flush=True)
         
     sys.stdout.flush()
 
@@ -244,15 +273,6 @@ def handle_connect():
     global _test_signals_started, _client_already_connected
     _client_already_connected = True
     broadcast_system_status()
-    
-    # if not _test_signals_started:
-    #     _test_signals_started = True
-    #     import test_signals
-    #     def delayed_test():
-    #         time.sleep(10)
-    #         test_signals.generate_test_signals(25, 1, 1, 101)
-    #     test_thread = threading.Thread(target=delayed_test, daemon=True)
-    #     test_thread.start()
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -260,10 +280,9 @@ def handle_disconnect():
 
 def main():
     print("=" * 60, flush=True)
-    # print("🚀 Starting Conveyor System Application", flush=True)
     print("=" * 60, flush=True)
     sys.stdout.flush()
-    
+
     connect_plc()
     status = check_connections()
     print(f"✅ plc: {status['plc']}, barcode_scanner: {status['barcode_scanner']}", flush=True)
@@ -274,6 +293,8 @@ def main():
     
     connect_barcode_signal(on_barcode_scanned)
     connect_photo_eye_signal(on_photo_eye_triggered)
+
+    start_interval_timer()
 
 @app.route('/api/system-status', methods=['GET'])
 def api_system_status():

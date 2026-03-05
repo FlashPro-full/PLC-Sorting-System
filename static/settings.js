@@ -21,42 +21,49 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 
-    // Bucket distance: load
+    // Load all settings (pushers + belt speed) from /get-settings
     fetch("/get-settings")
         .then(response => response.json())
-        .then(settings => {
-            document.querySelectorAll("#pusherSettings fieldset").forEach(fieldset => {
-                const pusherName = fieldset.querySelector("legend").innerText;
-                const pusherSettings = settings[pusherName];
+        .then(function (settings) {
+            var pushers = settings.pushers || settings;
+            document.querySelectorAll("#pusherSettings fieldset").forEach(function (fieldset) {
+                var pusherName = fieldset.querySelector("legend").innerText;
+                var pusherSettings = pushers[pusherName];
                 if (pusherSettings) {
-                    const labelSelect = fieldset.querySelector("select[id=\"" + pusherName + "_label\"]");
+                    var labelSelect = fieldset.querySelector("select[id=\"" + pusherName + "_label\"]");
                     if (labelSelect) labelSelect.value = pusherSettings.label;
-                    const distanceInput = fieldset.querySelector("input[id=\"" + pusherName + "_distance\"]");
+                    var distanceInput = fieldset.querySelector("input[id=\"" + pusherName + "_distance\"]");
                     if (distanceInput) distanceInput.value = pusherSettings.distance;
                 }
             });
+            if (beltSpeedInput && settings.belt_speed != null) {
+                beltSpeedInput.value = settings.belt_speed;
+            }
+            if (beltSpeedSource) {
+                beltSpeedSource.textContent = "From settings.";
+            }
         })
         .catch(function () {});
 
-    // Bucket distance: save
+    // Bucket distance (pushers): save via /update-pushers
     form.addEventListener("submit", function (event) {
         event.preventDefault();
-        let updatedSettings = {};
+        var pushers = {};
         document.querySelectorAll("#pusherSettings fieldset").forEach(function (fieldset) {
-            const pusherName = fieldset.querySelector("legend").innerText;
-            const labelSelect = fieldset.querySelector("select[id=\"" + pusherName + "_label\"]");
-            const distanceInput = fieldset.querySelector("input[id=\"" + pusherName + "_distance\"]");
+            var pusherName = fieldset.querySelector("legend").innerText;
+            var labelSelect = fieldset.querySelector("select[id=\"" + pusherName + "_label\"]");
+            var distanceInput = fieldset.querySelector("input[id=\"" + pusherName + "_distance\"]");
             if (labelSelect && distanceInput) {
-                updatedSettings[pusherName] = {
+                pushers[pusherName] = {
                     label: labelSelect.value,
                     distance: parseFloat(distanceInput.value) || 0
                 };
             }
         });
-        fetch("/update-settings", {
+        fetch("/update-pushers", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ settings: updatedSettings })
+            body: JSON.stringify({ pushers: pushers })
         })
         .then(function (response) { return response.json(); })
         .then(function (data) {
@@ -69,20 +76,7 @@ document.addEventListener("DOMContentLoaded", function () {
         .catch(function () {});
     });
 
-    // Belt speed: load (DF20 from PLC)
-    fetch("/get-belt-speed")
-        .then(function (response) { return response.json(); })
-        .then(function (data) {
-            if (beltSpeedInput) beltSpeedInput.value = data.speed;
-            if (beltSpeedSource) {
-                beltSpeedSource.textContent = data.source === "plc"
-                    ? "Current value from PLC (DF20)."
-                    : "Using default (PLC not connected or read failed).";
-            }
-        })
-        .catch(function () {});
-
-    // Belt speed: save
+    // Belt speed: save via /update-belt-speed
     if (beltSpeedForm) {
         beltSpeedForm.addEventListener("submit", function (event) {
             event.preventDefault();
@@ -101,7 +95,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (data.error) alert(data.error);
                 else {
                     alert(data.message);
-                    if (beltSpeedSource) beltSpeedSource.textContent = "Saved to PLC (DF20).";
+                    if (beltSpeedSource) beltSpeedSource.textContent = "Saved.";
                 }
             })
             .catch(function () { alert("Failed to update belt speed."); });

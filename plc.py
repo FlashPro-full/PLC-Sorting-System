@@ -12,13 +12,14 @@ dotenv.load_dotenv()
 PLC_IP = os.getenv('PLC_IP')
 PLC_PORT = int(os.getenv('PLC_PORT', '502'))
 PLC_TIMEOUT = float(os.getenv('PLC_TIMEOUT', '5.0'))
-PHOTO_EYE_ADDRESS = int(os.getenv('PHOTO_EYE_ADDRESS', '0x0015'), 16)
 UNIT_ID = int(os.getenv('MODBUS_UNIT_ID', '1'))
 
 plc = None
 modbus_lock = threading.Lock()
 _settings_lock = threading.Lock()
-SETTINGS = {}
+
+pushers = {}
+belt_speed = 0.0
 
 _photo_eye_callbacks = []
 _photo_eye_callbacks_lock = threading.Lock()
@@ -26,18 +27,22 @@ _photo_eye_monitor_thread = None
 _photo_eye_monitor_running = False
 
 def load_settings():
-    global SETTINGS
+    global pushers, belt_speed
     with _settings_lock:
         try:
             with open("settings.json", "r") as f:
-                SETTINGS = json.load(f)
+                pushers = json.load(f)['pushers']
+                belt_speed = json.load(f)['belt_speed']
         except FileNotFoundError:
-            SETTINGS = {}
+            pushers = {}
+            belt_speed = 0.0
         except json.JSONDecodeError:
-            SETTINGS = {}
+            pushers = {}
+            belt_speed = 0.0
         except Exception:
-            SETTINGS = {}
-    return SETTINGS
+            pushers = {}
+            belt_speed = 0.0
+    return pushers, belt_speed
 
 load_settings()
 
@@ -83,138 +88,20 @@ def cleanup_modbus():
     
     plc = None
 
-def float_to_registers(value):
-    packed = struct.pack('>f', float(value))
-    return struct.unpack('>HH', packed)
-
-def registers_to_float(high, low):
-    packed = struct.pack('>HH', high, low)
-    return struct.unpack('>f', packed)[0]
-
-def float_to_registers_click_order(value):
-    packed = struct.pack('>f', float(value))
-    high, low = struct.unpack('>HH', packed)
-    return [low, high]
-
-def registers_to_float_click_order(reg0, reg1):
-    packed = struct.pack('>HH', reg1, reg0)
-    return struct.unpack('>f', packed)[0]
-
-SPEED_DF20_FIRST_REG = 0x7027
-SPEED_DF20_ALT_REG = 0x7026
-
-def write_settings(settings=None):
+def write_bucket(pusher):
     global plc
-    if not settings:
-        with open("settings.json", "r") as f:
-            settings = json.load(f)
-
-    MODBUS_REGISTERS = {
-        "Pusher 1": 0x7002,   # DF2
-        "Pusher 2": 0x7004,   # DF3
-        "Pusher 3": 0x7006,   # DF4
-        "Pusher 4": 0x7008,   # DF5
-        "Pusher 5": 0x700A,   # DF6
-        "Pusher 6": 0x700C,   # DF7
-        "Pusher 7": 0x700E,   # DF8
-        "Pusher 8": 0x7010,   # DF9
-    }
-
-    with modbus_lock:
-        if plc is None:
-            plc = connect_plc()
-
-        for pusher, address in MODBUS_REGISTERS.items():
-            if pusher not in settings:
-                continue
-            dist = settings[pusher].get("distance", 0)
-            high, low = float_to_registers(dist)
-            print(f"📝 Writing {pusher}: {dist} → [{high}, {low}] to 0x{address:X}")
-            try:
-                plc.write_registers(address + 1, [high, low], slave=UNIT_ID)
-            except Exception as e:
-                print(f"❌ Write failed for {pusher}: {e}")
-
-    load_settings()
-
-def _decode_speed_registers(r0, r1):
-    v_high = registers_to_float(r0, r1)
-    v_low = registers_to_float_click_order(r0, r1)
-    for v in (v_high, v_low):
-        if 0.1 <= v <= 1000.0:
-            return round(v, 3)
-    return round(v_high, 3)
-
-def read_belt_speed():
-    global plc
-    with modbus_lock:
-        if plc is None:
-            plc = connect_plc()
-        if plc is None:
-            return None
-        for addr in (SPEED_DF20_ALT_REG, SPEED_DF20_FIRST_REG):
-            try:
-                result = plc.read_holding_registers(addr, count=2, slave=UNIT_ID)
-                if result and not result.isError() and len(result.registers) >= 2:
-                    r0, r1 = result.registers[0], result.registers[1]
-                    value = _decode_speed_registers(r0, r1)
-                    if value != 0:
-                        return value
-            except Exception:
-                pass
-    return None
-
-def write_belt_speed(speed):
-    global plc
-    with modbus_lock:
-        if plc is None:
-            plc = connect_plc()
-        if plc is None:
-            return False
-        try:
-            speed_f = float(speed)
-            high, low = float_to_registers(speed_f)
-            plc.write_registers(SPEED_DF20_ALT_REG, [high, low], slave=UNIT_ID)
-            print(f"📝 Belt speed written to DF20: {speed_f} → [{high}, {low}] @ 0x{SPEED_DF20_ALT_REG:X}", flush=True)
-            try:
-                rr = plc.read_holding_registers(SPEED_DF20_ALT_REG, count=2, slave=UNIT_ID)
-                if rr and not rr.isError() and len(rr.registers) >= 2:
-                    r0, r1 = rr.registers[0], rr.registers[1]
-                    as_high_first = registers_to_float(r0, r1)
-                    as_low_first = registers_to_float_click_order(r0, r1)
-                    print(f"   Read back: regs=[{r0}, {r1}] → high_first={as_high_first:.3f}, low_first={as_low_first:.3f}", flush=True)
-            except Exception:
-                pass
-            return True
-        except Exception as e:
-            print(f"❌ Belt speed write failed: {e}", flush=True)
-            return False
-
-def write_bucket(value, pusher):
-    global plc
-    
-    if not (101 <= value <= 150):
-        print(f"❌ Invalid bucket value: {value}. Must be between 101 and 150.")
-        return -1
-
-    register_address = 0x0064 + (value - 101)
-    register_ref = 0x0000
 
     pusher_key = f"Pusher {pusher}"
+
     if pusher_key not in SETTINGS:
         print(f"❌ Pusher {pusher} not found in settings.json")
         return -1
 
     with modbus_lock:
         if plc is None:
-            print(f"❌ PLC not connected, attempting to reconnect...")
             plc = connect_plc()
         try:
-            plc.write_register(register_address, pusher, slave=UNIT_ID)
-            plc.write_register(register_ref, value, slave=UNIT_ID)
-
-            print(f"✅ Updated register 0x{register_ref:04X} with {value}")
-            print(f"✅ Wrote pusher {pusher} to register 0x{register_address:04X}")
+            plc.write_register(0x0001, pusher, slave=UNIT_ID)
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
 
@@ -252,8 +139,6 @@ def disconnect_photo_eye_signal(callback):
 
 def _photo_eye_monitor_loop():
     last_value = 0
-    last_positionId = 0
-    positionId = 0
     last_error_log = 0.0
     reconnect_interval = 2.0
     while _photo_eye_monitor_running:
@@ -266,25 +151,13 @@ def _photo_eye_monitor_loop():
             current_value = read_photo_eye()
 
             if current_value == 1 and last_value == 0:
-                positionId = 0
-                with modbus_lock:
-                    if plc is not None:
-                        try:
-                            result = plc.read_input_registers(0x0015, count=1, slave=UNIT_ID)
-                            if result and not result.isError() and result.registers:
-                                positionId = result.registers[0]
-                        except Exception:
-                            positionId = 0
-
-                        if positionId != last_positionId:
-                            for callback in _photo_eye_callbacks:
-                                try:
-                                    threading.Thread(target=callback, args=(positionId,), daemon=True).start()
-                                except:
-                                    pass
+                for callback in _photo_eye_callbacks:
+                    try:
+                        threading.Thread(target=callback, args=(), daemon=True).start()
+                    except:
+                        pass
 
             last_value = current_value
-            last_positionId = positionId
             time.sleep(0.01)
         except Exception:
             now = time.time()

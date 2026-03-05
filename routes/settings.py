@@ -25,42 +25,27 @@ def get_settings():
     except json.JSONDecodeError:
         return jsonify({})
 
-@settings_bp.route('/update-settings', methods=['POST'])
-def update_settings():
-    from plc import write_settings
-    
+@settings_bp.route('/update-pushers', methods=['POST'])
+def update_pushers():
     data = request.json or {}
-    new_settings = data.get("settings")
+    pushers = data.get("pushers")
+    settings = {}
     
     if not isinstance(new_settings, dict):
         return jsonify({"error": "Invalid input format"}), 400
     
     try:
+        with open("settings.json", "r") as f:
+            settings = json.load(f)
         with open("settings.json", "w") as f:
-            json.dump(new_settings, f, indent=2)
-        write_settings(new_settings)
-        return jsonify({"message": "Settings updated successfully!"})
+            json.dump({...settings, "pushers": pushers}, f, indent=2)
+        return jsonify({"message": "Pushers updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@settings_bp.route('/get-belt-speed', methods=['GET'])
-def get_belt_speed():
-    from plc import read_belt_speed
-    try:
-        speed = read_belt_speed()
-        if speed is not None:
-            return jsonify({"speed": speed, "source": "plc"})
-        # Default from app if PLC not connected (matches booksorter DF20 usage)
-        default = 32.1
-        return jsonify({"speed": default, "source": "default"})
-    except Exception as e:
-        return jsonify({"speed": 32.1, "source": "default", "error": str(e)})
-
-
 @settings_bp.route('/update-belt-speed', methods=['POST'])
 def update_belt_speed():
-    from plc import write_belt_speed
     data = request.json or {}
     try:
         speed = float(data.get("speed", 0))
@@ -69,9 +54,11 @@ def update_belt_speed():
     if speed <= 0:
         return jsonify({"error": "Speed must be positive"}), 400
     try:
-        if write_belt_speed(speed):
-            return jsonify({"message": "Belt speed updated successfully!", "speed": speed})
-        return jsonify({"error": "PLC not connected"}), 503
+        with open("settings.json", "r") as f:
+            settings = json.load(f)
+        with open("settings.json", "w") as f:
+            json.dump({...settings, "belt_speed": speed}, f, indent=2)
+        return jsonify({"message": "Belt speed updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
