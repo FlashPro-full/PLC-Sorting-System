@@ -93,7 +93,7 @@ def write_bucket(pusher):
 
     pusher_key = f"Pusher {pusher}"
 
-    if pusher_key not in SETTINGS:
+    if pusher_key not in pushers:
         print(f"❌ Pusher {pusher} not found in settings.json")
         return -1
 
