@@ -87,7 +87,12 @@ def init_token():
         logger.error(f"❌ Failed to get token after {LOGIN_RETRIES} attempts: {last_error}")
 
 def get_pusher_number(label: str):
-    for pusher, config in SETTINGS.items():
+    pushers = SETTINGS.get("pushers") if isinstance(SETTINGS.get("pushers"), dict) else SETTINGS
+    if not pushers:
+        pushers = {}
+    for pusher, config in pushers.items():
+        if not isinstance(config, dict):
+            continue
         if config.get('label') == label:
             match = re.search(r'\d+', pusher)
             if match:
@@ -96,7 +101,6 @@ def get_pusher_number(label: str):
                     "label": config.get('label'),
                     "distance": config.get('distance')
                 }
-
     return {
         "pusher": 8,
         "label": "Extra",
