@@ -15,35 +15,11 @@ UNIT_ID = int(os.getenv('MODBUS_UNIT_ID', '1'))
 
 plc = None
 modbus_lock = threading.Lock()
-_settings_lock = threading.Lock()
-
-pushers = {}
-belt_speed = 0.0
 
 _photo_eye_callbacks = []
 _photo_eye_callbacks_lock = threading.Lock()
 _photo_eye_monitor_thread = None
 _photo_eye_monitor_running = False
-
-def load_settings():
-    global pushers, belt_speed
-    with _settings_lock:
-        try:
-            with open("settings.json", "r") as f:
-                pushers = json.load(f)['pushers']
-                belt_speed = json.load(f)['belt_speed']
-        except FileNotFoundError:
-            pushers = {}
-            belt_speed = 0.0
-        except json.JSONDecodeError:
-            pushers = {}
-            belt_speed = 0.0
-        except Exception:
-            pushers = {}
-            belt_speed = 0.0
-    return pushers, belt_speed
-
-load_settings()
 
 def connect_plc():
     global plc
@@ -92,6 +68,10 @@ def write_bucket(pusher):
 
     pusher_key = f"Pusher {pusher}"
 
+    pushers = {}
+    with open("settings.json", "r") as f:
+        pushers = json.load(f)['pushers']
+
     if pusher_key not in pushers:
         print(f"❌ Pusher {pusher} not found in settings.json")
         return -1
@@ -106,17 +86,15 @@ def write_bucket(pusher):
 
     return 1
 
-C1_REGISTER_ADDRESS = int(os.getenv('C1_REGISTER_ADDRESS', '0'))
-
 def read_photo_eye():
     global plc
     if plc is None:
         plc = connect_plc()
     try:
         with modbus_lock:
-            result = plc.read_holding_registers(C1_REGISTER_ADDRESS, count=1, slave=UNIT_ID)
+            result = plc.read_holding_registers(0x0002, count=1, slave=UNIT_ID)
             if result and not result.isError() and result.registers:
-                return 1 if (result.registers[0] & 1) else 0
+                return result.registers[0]
             return None
     except Exception:
         pass
