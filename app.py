@@ -141,8 +141,6 @@ def on_barcode_scanned(barcode):
 def on_purescan_response(barcode, response):
     if not response:
         return
-
-    current_time = time.time()
     
     belt_speed = 32.1
     with open("settings.json", "r") as f:

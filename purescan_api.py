@@ -178,7 +178,6 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                 if response.status == 200:
                     product_data = await response.json()
                     label = _label_from_purescan_response(product_data)
-                    print(label)
                     pusher_data = get_pusher_number(label)
                     _api_cache[barcode] = (pusher_data, current_time)
                     result = pusher_data
