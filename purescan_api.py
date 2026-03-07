@@ -27,13 +27,6 @@ _token_lock = threading.Lock()
 _api_cache: Dict[str, tuple] = {}
 _cache_ttl = 300
 
-SETTINGS_FILE = 'settings.json'
-try:
-    with open(SETTINGS_FILE, 'r') as f:
-        SETTINGS = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    SETTINGS = {}
-
 def init_session():
     global _session
     _session = requests.Session()
@@ -87,9 +80,9 @@ def init_token():
         logger.error(f"❌ Failed to get token after {LOGIN_RETRIES} attempts: {last_error}")
 
 def get_pusher_number(label: str):
-    pushers = SETTINGS.get("pushers") if isinstance(SETTINGS.get("pushers"), dict) else SETTINGS
-    if not pushers:
-        pushers = {}
+    pushers = {}
+    with open("settings.json", "r") as f:
+        pushers = json.load(f)['pushers']
     for pusher, config in pushers.items():
         if not isinstance(config, dict):
             continue
