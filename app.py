@@ -309,6 +309,12 @@ def main():
     connect_barcode_signal(on_barcode_scanned)
     connect_photo_eye_signal(on_photo_eye_triggered)
 
+    from plc import write_bucket
+
+    for i in range(1, 9):
+        write_bucket(i)
+        time.sleep(1)
+
     start_interval_timer()
 
 @app.route('/api/system-status', methods=['GET'])
