@@ -43,6 +43,25 @@ def update_pushers():
         return jsonify({"error": str(e)}), 500
 
 
+@settings_bp.route('/trigger-pusher', methods=['POST'])
+def trigger_pusher():
+    data = request.json or {}
+    try:
+        pusher = int(data.get("pusher", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid pusher number"}), 400
+    if pusher < 1 or pusher > 8:
+        return jsonify({"error": "Pusher must be 1-8"}), 400
+    try:
+        from plc import write_bucket
+        result = write_bucket(pusher)
+        if result == 1:
+            return jsonify({"message": f"Pusher {pusher} triggered"})
+        return jsonify({"error": "Trigger failed"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @settings_bp.route('/update-belt-speed', methods=['POST'])
 def update_belt_speed():
     data = request.json or {}

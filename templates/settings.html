@@ -34,6 +34,14 @@
                             </p>
                         </div>
 
+                        <div class="card" style="margin-bottom: 16px;">
+                            <p style="margin:0 0 12px 0;color:var(--muted);font-size:0.95rem;">Trigger pushers (test)</p>
+                            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                                <button type="button" class="pusher-trigger-btn" data-pusher="1">Pusher 1</button>
+                                <button type="button" class="pusher-trigger-btn" data-pusher="2">Pusher 2</button>
+                            </div>
+                        </div>
+
                         <div id="pusherSettings" class="pusher-grid">
                     {% for pusher in pushers %}
                         <fieldset class="fieldset-card">

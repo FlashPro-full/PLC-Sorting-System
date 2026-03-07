@@ -46,7 +46,24 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .catch(function () {});
 
-    // Bucket distance (pushers): save via /update-pushers
+    document.querySelectorAll(".pusher-trigger-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            var pusher = parseInt(btn.getAttribute("data-pusher"), 10);
+            if (isNaN(pusher)) return;
+            fetch("/trigger-pusher", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pusher: pusher })
+            })
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.error) alert(data.error);
+                else if (data.message) alert(data.message);
+            })
+            .catch(function () { alert("Trigger failed."); });
+        });
+    });
+
     form.addEventListener("submit", function (event) {
         event.preventDefault();
         var pushers = {};
