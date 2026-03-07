@@ -1,5 +1,3 @@
-// Three.js 3D Conveyor System Visualization
-
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
 
@@ -16,32 +14,29 @@ class ConveyorSystem3D {
         this.controls = null;
         this.conveyorBelt = null;
         this.pushers = [];
-        this.buckets = []; // Track buckets separately
+        this.buckets = [];
         this.items = [];
-        this.itemsByBarcode = {}; // Track items by barcode for updates
+        this.itemsByBarcode = {};
         this.scanner = null;
         this.photoEye = null;
-        this.photoEyeDetectionZone = null; // Track items in photo eye zone
+        this.photoEyeDetectionZone = null;
         this.animationId = null;
         this.conveyorSpeed = 0.02;
-        this.beltSpeedCmPerSec = 32.1; // Belt speed in cm/s
+        this.beltSpeedCmPerSec = 32.1;
         this.settings = null;
-        this.positionIdToZ = this.calculatePositionMapping(); // Cache position ID to Z mapping
-        this.lastFrameTime = performance.now(); // For delta-time calculations
+        this.positionIdToZ = this.calculatePositionMapping();
+        this.lastFrameTime = performance.now();
         this.frameCount = 0;
-        this.positionIdToCm = {}; // Cache position ID to cm mapping
+        this.positionIdToCm = {};
         this.calculatePositionIdToCm();
         
         try {
             this.init();
-            // Start animation loop (will handle empty scene until settings load)
             this.animate();
             this.setupEventListeners();
             
-            // Load settings asynchronously - this will update pusher positions and camera
             this.loadSettings();
         } catch (error) {
-            // Show error message in container
             if (this.container) {
                 this.container.innerHTML = `
                     <div style="padding: 20px; text-align: center; color: #fff; background: #ff4444; border-radius: 8px;">
@@ -55,26 +50,21 @@ class ConveyorSystem3D {
     }
 
     init() {
-        // Check WebGL support
         if (!this.isWebGLSupported()) {
             this.container.innerHTML = '<div style="padding: 20px; text-align: center; color: #fff;">❌ WebGL is not supported in your browser. Please use a modern browser like Chrome, Firefox, or Edge.</div>';
             return;
         }
 
-        // Scene setup - working room environment
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0xe8e8e8); // Light gray room background
-        // No fog - clear visibility
+        this.scene.background = new THREE.Color(0xe8e8e8);
 
-        // Camera - calculate position to see entire conveyor
         const width = this.container.clientWidth || 800;
         const height = this.container.clientHeight || 600;
         const aspect = width / height;
         
-        // Calculate conveyor dimensions for camera positioning
         let maxPusherDistance = 972;
         if (this.settings) {
-            const distances = Object.values(this.settings).map(p => p.distance || 0);
+            const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
             maxPusherDistance = Math.max(...distances, 972);
         }
         const startBuffer = 200;
@@ -82,80 +72,60 @@ class ConveyorSystem3D {
         const conveyorLength = startBuffer + maxPusherDistance + endBuffer;
         const conveyorWidth = 80;
         
-        // Position camera to see entire conveyor from the SIDE (across), rotated 90 degrees
-        // Use wider FOV (60 degrees) to see more of the scene
         this.camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 5000);
         
-        // Calculate distance needed to fit conveyor in view
         const conveyorHalfLength = conveyorLength / 2;
         const conveyorHalfWidth = conveyorWidth / 2;
         
-        // Position camera to view from the SIDE (across the conveyor)
-        // Rotate 90 degrees: view from positive X side, looking along Z-axis (conveyor direction)
-        // Camera should be at a good height to see the whole system
-        const cameraHeight = Math.max(conveyorWidth * 2, 200); // High enough to see pushers and buckets
-        const cameraDistance = Math.max(conveyorHalfWidth * 3, 150); // Distance from conveyor side
+        const cameraHeight = Math.max(conveyorWidth * 2, 200);
+        const cameraDistance = Math.max(conveyorHalfWidth * 3, 150);
         
-        // Position camera on the SIDE (positive X), looking along the conveyor (Z-axis)
-        // This gives a side view rotated 90 degrees from top-down
         this.camera.position.set(
-            cameraDistance, // On the side (positive X)
-            cameraHeight, // High enough to see everything
-            0 // Centered along conveyor length (Z = 0)
+            cameraDistance,
+            cameraHeight,
+            0
         );
         
-        // Look at the center of the conveyor (0, 0, 0)
-        // This creates a side view looking along the conveyor
         this.camera.lookAt(0, 0, 0);
 
-        // Remove loading indicator
         const loadingDiv = document.getElementById('conveyor3d-loading');
         if (loadingDiv) {
             loadingDiv.remove();
         }
 
-        // Renderer
         try {
-            // OPTIMIZED: Disable antialiasing for better performance (can enable if needed)
             this.renderer = new THREE.WebGLRenderer({ antialias: false });
             const width = this.container.clientWidth || 800;
             const height = this.container.clientHeight || 600;
             this.renderer.setSize(width, height);
-            // OPTIMIZED: Use faster shadow map type for better performance
             this.renderer.shadowMap.enabled = true;
-            this.renderer.shadowMap.type = THREE.BasicShadowMap; // Faster than PCFSoftShadowMap
+            this.renderer.shadowMap.type = THREE.BasicShadowMap;
             this.container.appendChild(this.renderer.domElement);
         } catch (error) {
             this.container.innerHTML = '<div style="padding: 20px; text-align: center; color: #fff;">❌ Failed to initialize 3D renderer. Check browser console for details.</div>';
             return;
         }
 
-        // Controls - allow viewing from different angles
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         
-        // Calculate appropriate distance limits based on conveyor size (reuse conveyorHalfLength)
-        this.controls.minDistance = Math.max(conveyorHalfLength * 0.5, 200); // Can zoom in closer
-        this.controls.maxDistance = Math.max(conveyorHalfLength * 3, 2000); // Can zoom out further
+        this.controls.minDistance = Math.max(conveyorHalfLength * 0.5, 200);
+        this.controls.maxDistance = Math.max(conveyorHalfLength * 3, 2000);
         
-        // Allow full rotation for side view (less restrictive angles)
-        this.controls.minPolarAngle = Math.PI / 12; // Allow looking from below
-        this.controls.maxPolarAngle = Math.PI - Math.PI / 12; // Allow looking from above
+        this.controls.minPolarAngle = Math.PI / 12;
+        this.controls.maxPolarAngle = Math.PI - Math.PI / 12;
         
-        this.controls.enablePan = true; // Allow panning to see different parts
+        this.controls.enablePan = true;
         this.controls.panSpeed = 0.8;
         this.controls.rotateSpeed = 0.5;
         
-        // Set initial target to center of conveyor
         this.controls.target.set(0, 0, 0);
         this.controls.update();
 
-        // Lighting - adjusted for working room environment
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.scene.add(ambientLight);
 
-        // Main directional light (simulating overhead lighting)
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
         directionalLight.position.set(0, 700, 0);
         directionalLight.castShadow = true;
@@ -169,23 +139,17 @@ class ConveyorSystem3D {
         directionalLight.shadow.camera.far = 2000;
         this.scene.add(directionalLight);
 
-        // Fill light from side
         const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
         fillLight.position.set(-300, 400, 300);
         this.scene.add(fillLight);
 
-        // Create working room environment
         this.createWorkingRoom();
 
-        // Settings will be loaded asynchronously, create components after
-        // Components will use default values initially, then update when settings load
         this.createConveyorBelt();
         this.createBarcodeScanner();
         this.createPhotoEye();
         this.createPushers();
-        // Static book removed - no initial book model under scanner
 
-        // Handle window resize
         window.addEventListener('resize', () => this.onWindowResize());
     }
 
@@ -269,23 +233,19 @@ class ConveyorSystem3D {
     createConveyorBelt() {
         const group = new THREE.Group();
         
-        // Calculate conveyor length based on settings
-        // Last pusher is at max distance, add buffers for start/end
-        let maxPusherDistance = 972; // Default from Pusher 8
-        if (this.settings) {
-            const distances = Object.values(this.settings).map(p => p.distance || 0);
+        let maxPusherDistance = 972;
+        if (this.settings?.pushers) {
+            const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
             maxPusherDistance = Math.max(...distances, 972);
         }
         
-        // Conveyor length: start buffer (200cm) + max pusher distance + end buffer (200cm)
-        const startBuffer = 200; // Space for scanner and photo eye
-        const endBuffer = 200; // Space after last pusher
+        const startBuffer = 200;
+        const endBuffer = 200;
         const frameLength = startBuffer + maxPusherDistance + endBuffer;
         
         const frameWidth = 80;
         const frameHeight = 20;
 
-        // Side rails
         const railGeometry = new THREE.BoxGeometry(10, frameHeight, frameLength);
         const railMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc });
         
@@ -299,10 +259,8 @@ class ConveyorSystem3D {
         rightRail.castShadow = true;
         group.add(rightRail);
         
-        // Position conveyor group on floor (floor is at y=0)
         group.position.y = 0;
 
-        // Conveyor belt surface
         const beltGeometry = new THREE.PlaneGeometry(frameWidth - 20, frameLength);
         const beltMaterial = new THREE.MeshStandardMaterial({ 
             color: 0x333333,
@@ -315,7 +273,6 @@ class ConveyorSystem3D {
         belt.receiveShadow = true;
         group.add(belt);
 
-        // Add rollers
         const rollerCount = 40;
         const rollerSpacing = frameLength / rollerCount;
         const rollerGeometry = new THREE.CylinderGeometry(3, 3, frameWidth - 20, 16);
@@ -337,12 +294,11 @@ class ConveyorSystem3D {
         const group = new THREE.Group();
         group.userData.name = "Barcode Scanner";
         
-        // Barcode Scanner is positioned at negative cm (before photo eye at 0cm)
         const SCANNER_POSITION_CM = -50;
         
         let maxPusherDistance = 972;
-        if (this.settings) {
-            const distances = Object.values(this.settings).map(p => p.distance || 0);
+        if (this.settings?.pushers) {
+            const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
             maxPusherDistance = Math.max(...distances, 972);
         }
         const startBuffer = 200;
@@ -350,8 +306,6 @@ class ConveyorSystem3D {
         const conveyorStart = -totalLength / 2;
         const scannerZ = this.cmToZPosition(SCANNER_POSITION_CM);
         
-        
-        // Scanner body - make it larger and more visible
         const bodyGeometry = new THREE.BoxGeometry(40, 30, 35);
         const bodyMaterial = new THREE.MeshStandardMaterial({ 
             color: 0x1a5490,
@@ -363,7 +317,6 @@ class ConveyorSystem3D {
         body.castShadow = true;
         group.add(body);
 
-        // Scanner window/lens - brighter and more visible
         const lensGeometry = new THREE.BoxGeometry(20, 12, 3);
         const lensMaterial = new THREE.MeshStandardMaterial({ 
             color: 0x00ff00,
@@ -421,7 +374,7 @@ class ConveyorSystem3D {
         
         let maxPusherDistance = 972;
         if (this.settings) {
-            const distances = Object.values(this.settings).map(p => p.distance || 0);
+            const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
             maxPusherDistance = Math.max(...distances, 972);
         }
         const photoEyeZ = this.cmToZPosition(PHOTO_EYE_POSITION_CM);
@@ -519,7 +472,7 @@ class ConveyorSystem3D {
         if (this.settings) {
             pusherDistances = [1, 2, 3, 4, 5, 6, 7, 8].map(num => {
                 const pusherKey = `Pusher ${num}`;
-                return this.settings[pusherKey]?.distance || pusherDistances[num - 1];
+                return this.settings?.pushers?.[pusherKey]?.distance ?? pusherDistances[num - 1];
             });
         }
         
@@ -564,7 +517,7 @@ class ConveyorSystem3D {
         // Get Pusher 8 distance (furthest pusher)
         let pusher8Distance = 972;
         if (this.settings) {
-            const distances = Object.values(this.settings).map(p => p.distance || 0);
+            const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
             pusher8Distance = Math.max(...distances, 972);
         }
         
@@ -665,7 +618,7 @@ class ConveyorSystem3D {
             // Fallback: calculate from distance if position ID mapping not available
             let maxPusherDistance = 972;
             if (this.settings) {
-                const distances = Object.values(this.settings).map(p => p.distance || 0);
+                const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
                 maxPusherDistance = Math.max(...distances, 972);
             }
             const startBuffer = 200;
@@ -704,7 +657,7 @@ class ConveyorSystem3D {
             // Fallback: calculate from distance if position ID mapping not available
             let maxPusherDistance = 972;
             if (this.settings) {
-                const distances = Object.values(this.settings).map(p => p.distance || 0);
+                const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
                 maxPusherDistance = Math.max(...distances, 972);
             }
             const startBuffer = 200;
@@ -899,6 +852,8 @@ class ConveyorSystem3D {
             .then(response => response.json())
             .then(settings => {
                 this.settings = settings;
+                const speed = Number(settings?.belt_speed);
+                this.beltSpeedCmPerSec = (speed > 0) ? speed : 32.1;
                 this.updatePusherPositions();
                 this.positionIdToZ = this.calculatePositionMapping();
                 this.createPhotoEye();
@@ -917,8 +872,9 @@ class ConveyorSystem3D {
         this.pushers.forEach((pusher, index) => {
             const pusherNumber = index + 1;
             const pusherKey = `Pusher ${pusherNumber}`;
-            if (this.settings[pusherKey]) {
-                const distance = this.settings[pusherKey].distance;
+            const pusherConfig = this.settings?.pushers?.[pusherKey];
+            if (pusherConfig) {
+                const distance = pusherConfig.distance;
                 const positionId = this.getPusherPositionId(pusherNumber);
                 
                 const pusherZ = this.cmToZPosition(distance);
@@ -1026,7 +982,7 @@ class ConveyorSystem3D {
                 // Check if item reached end of conveyor
                 let maxPusherDistance = 972;
                 if (this.settings) {
-                    const distances = Object.values(this.settings).map(p => p.distance || 0);
+                    const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
                     maxPusherDistance = Math.max(...distances, 972);
                 }
                 if (currentPosition >= maxPusherDistance + 200 && !item.userData.routed) {
@@ -1069,7 +1025,7 @@ class ConveyorSystem3D {
         // Calculate conveyor dimensions
         let maxPusherDistance = 972;
         if (this.settings) {
-            const distances = Object.values(this.settings).map(p => p.distance || 0);
+            const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
             maxPusherDistance = Math.max(...distances, 972);
         }
         const startBuffer = 200;
@@ -1103,8 +1059,8 @@ class ConveyorSystem3D {
 
     cmToZPosition(positionCm) {
         let maxPusherDistance = 972;
-        if (this.settings) {
-            const distances = Object.values(this.settings).map(p => p.distance || 0);
+        if (this.settings?.pushers) {
+            const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
             maxPusherDistance = Math.max(...distances, 972);
         }
         const startBuffer = 200;
@@ -1120,30 +1076,23 @@ class ConveyorSystem3D {
     }
 
     calculatePositionFromStartTime(startTime) {
-        // Calculate current position from start_time using belt_speed=32.1 cm/s
-        // startTime is in seconds (Python time.time() format)
         if (!startTime) return null;
-        const now = Date.now() / 1000; // Current time in seconds
+        const now = Date.now() / 1000;
         const elapsed = now - startTime;
-        if (elapsed < 0) return 0; // Don't allow negative positions
-        return elapsed * this.beltSpeedCmPerSec; // Position in cm
+        if (elapsed < 0) return 0;
+        return elapsed * this.beltSpeedCmPerSec;
     }
 
     calculatePositionIdToCm() {
-        // Calculate real position in cm for each position ID (101-150)
-        // PositionId 101 = 0cm (start), PositionId 150 = end
-        // Assuming positionId maps linearly to conveyor length
         const POSITION_ID_MIN = 101;
         const POSITION_ID_MAX = 150;
         
-        // Get conveyor dimensions
         let maxPusherDistance = 972;
         if (this.settings) {
-            const distances = Object.values(this.settings).map(p => p.distance || 0);
+            const distances = Object.values(this.settings?.pushers || {}).map(p => p?.distance ?? 0);
             maxPusherDistance = Math.max(...distances, 972);
         }
         
-        // Map position IDs to cm (linear mapping)
         for (let posId = POSITION_ID_MIN; posId <= POSITION_ID_MAX; posId++) {
             const normalized = (posId - POSITION_ID_MIN) / (POSITION_ID_MAX - POSITION_ID_MIN);
             const positionCm = normalized * maxPusherDistance;
