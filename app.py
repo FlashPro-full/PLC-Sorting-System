@@ -158,8 +158,10 @@ def on_purescan_response(barcode, response):
         book_dict[barcode]["pusher"] = pusher
         book_dict[barcode]["label"] = label
         book_dict[barcode]["distance"] = distance
-        book_dict[barcode]["status"] = "progress"
-        book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
+        
+        if book_dict[barcode].get("status") == "fetching":
+            book_dict[barcode]["status"] = "progress"
+            book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
 
     socketio.emit('update_book', book_dict[barcode])
 
