@@ -24,7 +24,6 @@ barcode_queue: deque = deque()
 queue_lock = threading.Lock()
 
 book_dict: Dict[str, dict] = {}
-book_dict_lock = threading.Lock()
 
 positionId = 100
 
@@ -49,25 +48,21 @@ _request_times_lock = threading.Lock()
 def on_interval_100ms():
     current_time = time.time()
     to_remove = []
-    with book_dict_lock:
-        for barcode in list(book_dict):
-            item = book_dict.get(barcode)
-            if not item:
-                continue
-            if (item.get("status") == "progress"
-                    and item.get("push_time") is not None
-                    and current_time >= item.get("push_time")
-                    and item.get("positionId") is not None
-                    and item.get("pusher") is not None):
-                write_bucket(item.get("pusher"))
-                to_remove.append(barcode)
 
-            elif item.get("status") == "fetching":
-                with book_dict_lock:
-                    book_dict[barcode]["status"] = "progress"
-                    book_dict[barcode]["fetching_time"] = current_time
-        for barcode in to_remove:
-            del book_dict[barcode]
+    for barcode in list(book_dict):
+        item = book_dict.get(barcode)
+        if not item:
+            continue
+        if (item.get("status") == "progress"
+                and item.get("push_time") is not None
+                and current_time >= item.get("push_time")
+                and item.get("positionId") is not None
+                and item.get("pusher") is not None):
+            write_bucket(item.get("pusher"))
+            to_remove.append(barcode)
+
+    for barcode in to_remove:
+        del book_dict[barcode]
 
 def _timer_loop():
     while _timer_running:
@@ -157,17 +152,14 @@ def on_purescan_response(barcode, response):
     label = response.get("label")
     distance = response.get("distance", max_distance)
     
-    with book_dict_lock:
-        if barcode in book_dict:
-            if book_dict[barcode].get("pusher") is not None:
-                return
-            book_dict[barcode]["pusher"] = pusher
-            book_dict[barcode]["label"] = label
-            book_dict[barcode]["distance"] = distance
-            if book_dict[barcode].get("status") == "fetching":
-                pass_time = book_dict[barcode].get("fetching_time") - book_dict[barcode].get("start_time")
-                book_dict[barcode]["status"] = "progress"
-                book_dict[barcode]["push_time"] = current_time + (distance / belt_speed) - pass_time
+    if barcode in book_dict:
+        if book_dict[barcode].get("pusher") is not None:
+            return
+        book_dict[barcode]["pusher"] = pusher
+        book_dict[barcode]["label"] = label
+        book_dict[barcode]["distance"] = distance
+        book_dict[barcode]["status"] = "progress"
+        book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
 
     socketio.emit('update_book', book_dict[barcode])
 
@@ -198,12 +190,11 @@ def _handle_purescan_error(barcode, error):
             if response:
                 on_purescan_response(barcode, response)
             else:
-                with book_dict_lock:
-                    if barcode in book_dict:
-                        book_dict[barcode]["status"] = "No response"
-                        book_dict[barcode]["label"] = "Extra"
-                        book_dict[barcode]["distance"] = max_distance
-                        book_dict[barcode]["pusher"] = max_pusher
+                if barcode in book_dict:
+                    book_dict[barcode]["status"] = "No response"
+                    book_dict[barcode]["label"] = "Extra"
+                    book_dict[barcode]["distance"] = max_distance
+                    book_dict[barcode]["pusher"] = max_pusher
                         
                 socketio.emit('update_book', book_dict[barcode])
         
@@ -240,11 +231,9 @@ def on_photo_eye_triggered():
         book_dict[barcode]["start_time"] = photo_eye_trigger_time
         if distance is None:
             book_dict[barcode]["status"] = "fetching"
-            book_dict[barcode]["fetching_time"] = photo_eye_trigger_time
         else: 
-            with book_dict_lock:
-                book_dict[barcode]["status"] = "progress"
-                book_dict[barcode]["push_time"] = photo_eye_trigger_time + (distance / belt_speed)
+            book_dict[barcode]["status"] = "progress"
+            book_dict[barcode]["push_time"] = photo_eye_trigger_time + (distance / belt_speed)
     
         socketio.emit('update_book', book_dict[barcode])
         

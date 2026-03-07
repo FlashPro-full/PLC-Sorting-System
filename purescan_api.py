@@ -1,9 +1,9 @@
 import requests # type: ignore
-import aiohttp
+import aiohttp # type: ignore
 import asyncio
 import os
 import json
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 from typing import Dict, Optional
 import re
 import time
@@ -199,7 +199,6 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                                     if retry_response.status == 200:
                                         product_data = await retry_response.json()
                                         label = _label_from_purescan_response(product_data)
-                                        print(label)
                                         pusher_data = get_pusher_number(label)
                                         _api_cache[barcode] = (pusher_data, current_time)
                                         result = pusher_data
@@ -232,18 +231,16 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                     except Exception as e:
                         logger.error(f"❌ Purescan API returned status 400 for barcode {barcode}. Exception: {e}")
                         result = None
-                elif response.status == 404:
-                    label = "Extra"
-                    pusher_data = get_pusher_number(label)
-                    _api_cache[barcode] = (pusher_data, current_time)
-                    result = pusher_data
                 else:
                     try:
                         error_body = await response.text()
                         logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}. Response: {error_body}")
+                        label = "Extra"
+                        pusher_data = get_pusher_number(label)
+                        _api_cache[barcode] = (pusher_data, current_time)
+                        result = pusher_data
                     except Exception:
                         logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}")
-                    result = None
         except asyncio.TimeoutError:
             logger.error(f"⏱️ Timeout requesting Purescan API for barcode {barcode}")
             result = None

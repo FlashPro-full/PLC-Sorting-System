@@ -91,7 +91,7 @@ function updateActiveItemsTableFromData(data) {
                 let positionCm = "0.0 cm";
                 if (item.positionCm !== undefined && item.positionCm !== null) {
                     positionCm = parseFloat(item.positionCm).toFixed(1) + " cm";
-                } else if (item.start_time && item.status === "progress" && item.positionId) {
+                } else if (item.start_time && (item.status === "progress" || item.status === "fetching") && item.positionId) {
                     const startTime = typeof item.start_time === 'string' ? parseFloat(item.start_time) : item.start_time;
                     const currentTime = Date.now() / 1000;
                     const elapsed = currentTime - startTime;
@@ -304,7 +304,7 @@ function updateTablePositions() {
             return;
         }
 
-        if (item.status === "progress" && item.positionId && item.positionCm !== undefined && item.positionCm !== null) {
+        if ((item.status === "progress" || item.status === "fetching") && item.positionId && item.positionCm !== undefined && item.positionCm !== null) {
             const positionCm = parseFloat(item.positionCm).toFixed(1) + " cm";
             const positionCell = row.querySelector('td[data-position-id]');
             if (positionCell) {
