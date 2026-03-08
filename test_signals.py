@@ -30,48 +30,45 @@ barcodes = [
     "796019791199",
 ]
 
-def generate_test_signals(count=None, interval=0.5, delay_after_barcode=0.2, start_position=101):
+def generate_test_signals(count=None, interval=0.5, delay_after_barcode=0.2):
     use_list = count is None
     n = len(barcodes) if use_list else count
-    
+
     if not _barcode_callbacks:
         return
-    
+
     if not _photo_eye_callbacks:
         return
-    
+
     try:
         for i in range(0, n):
-            positionId = start_position + (i % 50)
-            barcode = barcodes[i%19]
-            
+            barcode = barcodes[i % len(barcodes)]
+
             for callback in _barcode_callbacks:
                 try:
                     callback(barcode)
                 except Exception as e:
                     print(f"❌ Error calling barcode callback: {e}")
-            
+
             time.sleep(delay_after_barcode)
-            
+
             for callback in _photo_eye_callbacks:
                 try:
-                    callback(positionId)
+                    callback()
                 except Exception as e:
                     print(f"❌ Error calling photo eye callback: {e}")
-            
-            if i < n:
+
+            if i < n - 1:
                 time.sleep(interval)
-        
+
     except KeyboardInterrupt:
         print("\n\n⚠️  Test interrupted by user")
     except Exception as e:
         print(f"\n❌ Error during test: {e}")
 
+
 if __name__ == '__main__':
-    import sys
-    count = int(sys.argv[1]) if len(sys.argv) > 1 else None  # None = use barcodes list
+    count = int(sys.argv[1]) if len(sys.argv) > 1 else None
     delay = float(sys.argv[2]) if len(sys.argv) > 2 else 0.2
-    start_pos = int(sys.argv[3]) if len(sys.argv) > 3 else 101
-    
-    generate_test_signals(count, 0.5, delay, start_pos)
+    generate_test_signals(count, 0.5, delay)
 
