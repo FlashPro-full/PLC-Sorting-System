@@ -4,7 +4,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const beltSpeedInput = document.getElementById("beltSpeedInput");
     const beltSpeedSource = document.getElementById("beltSpeedSource");
 
-    // Tab switching (fix navigation: aria-hidden, focus, single scroll container)
     document.querySelectorAll(".settings-tab").forEach(function (tab) {
         tab.addEventListener("click", function () {
             var targetId = "tab-" + tab.getAttribute("data-tab");
@@ -21,7 +20,6 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 
-    // Load all settings (pushers + belt speed) from /get-settings
     fetch("/get-settings")
         .then(response => response.json())
         .then(function (settings) {
@@ -94,7 +92,6 @@ document.addEventListener("DOMContentLoaded", function () {
         .catch(function () {});
     });
 
-    // Belt speed: save via /update-belt-speed
     if (beltSpeedForm) {
         beltSpeedForm.addEventListener("submit", function (event) {
             event.preventDefault();

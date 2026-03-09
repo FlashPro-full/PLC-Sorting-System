@@ -31,11 +31,24 @@ class ConveyorSystem3D {
         this.calculatePositionIdToCm();
         
         try {
-            this.init();
-            this.animate();
-            this.setupEventListeners();
-            
-            this.loadSettings();
+            fetch('/get-settings')
+                .then(response => response.json())
+                .then(settings => {
+                    this.settings = settings;
+                    const speed = Number(settings?.belt_speed);
+                    this.beltSpeedCmPerSec = (speed > 0) ? speed : 32.1;
+                    this.init();
+                    this.animate();
+                    this.setupEventListeners();
+                    this.positionIdToZ = this.calculatePositionMapping();
+                    this.updatePusherPositions();
+                    this.updateCameraForConveyor();
+                })
+                .catch(() => {
+                    this.init();
+                    this.animate();
+                    this.setupEventListeners();
+                });
         } catch (error) {
             if (this.container) {
                 this.container.innerHTML = `

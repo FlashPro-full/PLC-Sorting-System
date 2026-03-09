@@ -1,4 +1,3 @@
-// Initialize 3D Conveyor System
 let conveyor3D = null;
 let initAttempts = 0;
 const MAX_INIT_ATTEMPTS = 10;
@@ -10,13 +9,11 @@ function initialize3D() {
         return;
     }
 
-    // Check if already initialized
     if (window.conveyor3DInstance) {
         conveyor3D = window.conveyor3DInstance;
         return;
     }
 
-    // Wait for module to load
     if (typeof window.ConveyorSystem3D !== 'undefined') {
         try {
             conveyor3D = new window.ConveyorSystem3D('conveyor3d');
@@ -34,13 +31,11 @@ function initialize3D() {
     }
 }
 
-// Listen for module load event
 window.addEventListener('conveyor3d-loaded', () => {
     initAttempts = 0;
     setTimeout(initialize3D, 100);
 });
 
-// Poll for module availability
 function pollForModule() {
     if (typeof window.ConveyorSystem3D !== 'undefined') {
         initAttempts = 0;
@@ -55,13 +50,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(pollForModule, 1000);
 });
 
-// Also try immediately if DOM is already loaded
 if (document.readyState !== 'loading') {
     setTimeout(initialize3D, 1000);
     setTimeout(pollForModule, 1500);
 }
 
-// Listen for settings updates
 document.addEventListener('settingsUpdated', () => {
     if (conveyor3D || window.conveyor3DInstance) {
         const instance = conveyor3D || window.conveyor3DInstance;

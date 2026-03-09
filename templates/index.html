@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Conveyor System - Live System</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <!-- Load Three.js from CDN first -->
     <script type="importmap">
     {
         "imports": {
@@ -14,7 +13,6 @@
         }
     }
     </script>
-    <!-- Socket.IO for real-time communication -->
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script type="module" src="{{ url_for('static', filename='conveyor3d.js') }}" defer></script>
     <script src="{{ url_for('static', filename='init3d.js') }}" defer></script>
@@ -47,7 +45,6 @@
         </header>
 
         <section class="full-width-layout">
-            <!-- 3D Visualization - Full Width -->
             <div class="card visualization-card">
                 <label style="margin-bottom: 8px; display: block; font-size: 0.9rem;">3D Conveyor System (Live)</label>
                 <div id="conveyor3d" style="width: 95%; height: 600px; border-radius: 8px; overflow: hidden; background: #1a1a1a; position: relative; margin: 0 auto;">
@@ -57,9 +54,6 @@
                     </div>
                 </div>
             </div>
-
-
-            <!-- Last Scanned Barcode Display (Read-only) -->
             <div class="card" style="margin-bottom: 20px;">
                 <label style="margin-bottom: 8px; display: block; font-size: 0.9rem; font-weight: 600;">📋 Last Processed Barcode</label>
                 <div style="display: flex; gap: 12px; align-items: center;">
@@ -75,8 +69,6 @@
                     This field shows the last barcode that was successfully processed by the backend
                 </div>
             </div>
-
-            <!-- Information Table - Full Width -->
             <div class="card info-table-card">
                 <label style="margin-bottom: 8px; display: block; font-size: 0.9rem;">📊 Active Items (Live)</label>
                 <div style="overflow-x: auto;">
@@ -106,7 +98,6 @@
                     <span id="items-count">0</span> active item(s) • Updates every 1 second
                 </div>
             </div>
-
         </section>
     </main>
 </body>

@@ -94,11 +94,6 @@ def get_pusher_number(label: str):
                     "label": config.get('label'),
                     "distance": config.get('distance')
                 }
-    return {
-        "pusher": 8,
-        "label": "Extra",
-        "distance": 0
-    }
 
 async def _get_async_session():
     loop = asyncio.get_event_loop()
@@ -202,26 +197,6 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                                 result = None
                     except Exception as e:
                         logger.error(f"❌ Error refreshing token: {e}", exc_info=True)
-                        result = None
-                elif response.status == 400:
-                    try:
-                        error_body = await response.text()
-                        error_data = json.loads(error_body) if error_body else {}
-                        error_msg = error_data.get('error', error_data.get('message', ''))
-
-                        if 'no results' in str(error_msg).lower() or 'not found' in str(error_msg).lower():
-                            logger.info(f"ℹ️ Purescan API: No results found for barcode {barcode}, using default pusher")
-                            pusher_data = get_pusher_number('Extra')
-                            _api_cache[barcode] = (pusher_data, current_time)
-                            result = pusher_data
-                        else:
-                            logger.error(f"❌ Purescan API returned status 400 for barcode {barcode}. Error: {error_body}")
-                            result = None
-                    except json.JSONDecodeError:
-                        logger.error(f"❌ Purescan API returned status 400 for barcode {barcode}. Response: {error_body}")
-                        result = None
-                    except Exception as e:
-                        logger.error(f"❌ Purescan API returned status 400 for barcode {barcode}. Exception: {e}")
                         result = None
                 else:
                     try:

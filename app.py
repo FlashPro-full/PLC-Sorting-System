@@ -27,9 +27,6 @@ book_dict: Dict[str, dict] = {}
 
 positionId = 100
 
-max_distance = 972
-max_pusher = 8
-
 INTERVAL_100MS = 0.1
 _timer_thread = None
 _timer_running = False
@@ -148,7 +145,7 @@ def on_purescan_response(barcode, response):
 
     pusher = response.get("pusher")
     label = response.get("label")
-    distance = response.get("distance", max_distance)
+    distance = response.get("distance")
     
     if barcode in book_dict:
         if book_dict[barcode].get("pusher") is not None:
@@ -192,9 +189,11 @@ def _handle_purescan_error(barcode, error):
             else:
                 if barcode in book_dict:
                     book_dict[barcode]["status"] = "No response"
-                    book_dict[barcode]["label"] = "Extra"
-                    book_dict[barcode]["distance"] = max_distance
-                    book_dict[barcode]["pusher"] = max_pusher
+                    from purescan_api import get_pusher_number
+                    pusher_data = get_pusher_number("Extra")
+                    book_dict[barcode]["label"] = pusher_data.get("label")
+                    book_dict[barcode]["distance"] = pusher_data.get("distance")
+                    book_dict[barcode]["pusher"] = pusher_data.get("pusher")
                         
                 socketio.emit('update_book', book_dict[barcode])
         

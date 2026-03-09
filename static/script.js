@@ -8,7 +8,7 @@ function updateActiveItemsTableFromFrontendItems() {
     updateActiveItemsTableFromData(data);
 }
 
-function calculateCurrentPosition(startTime, beltSpeed = 32.1) {
+function calculateCurrentPosition(startTime, beltSpeed) {
     if (!startTime) return null;
     const now = Date.now() / 1000;
     const elapsed = now - startTime;
@@ -66,7 +66,7 @@ function updateActiveItemsTableFromData(data) {
             }
         });
 
-        items.forEach((item, index) => {
+        items.forEach((item) => {
             try {
                 const barcode = item.barcode;
                 if (!barcode) {
@@ -96,7 +96,7 @@ function updateActiveItemsTableFromData(data) {
                     const currentTime = Date.now() / 1000;
                     const elapsed = currentTime - startTime;
                     if (elapsed >= 0) {
-                        const position = elapsed * BELT_SPEED;
+                        const position = elapsed * currentBeltSpeed;
                         positionCm = position.toFixed(1) + " cm";
                     }
                 }
@@ -227,8 +227,8 @@ function updateSystemStatusFromData(status) {
 let socket = null;
 let frontendItems = new Map();
 let positionUpdateIntervalId = null;
-const BELT_SPEED = 32.1;
-const MAX_DISTANCE = 972;
+let currentBeltSpeed = 32.1;
+let currentMaxDistance = 972;
 const COMPLETION_OFFSET = 3.21;
 const UPDATE_INTERVAL = 100;
 
@@ -264,21 +264,24 @@ function updateTablePositions() {
             return;
         }
 
-        item.positionCm = elapsed * BELT_SPEED;
+        const beltSpeed = currentBeltSpeed > 0 ? currentBeltSpeed : 32.1;
+        item.positionCm = elapsed * beltSpeed;
 
         const positionCm = item.positionCm;
         const distance = item.distance !== undefined && item.distance !== null ? parseFloat(item.distance) : null;
-        const removalThreshold = distance !== null ? distance - COMPLETION_OFFSET : MAX_DISTANCE - COMPLETION_OFFSET;
+        const removalThresholdCm = distance !== null ? distance - COMPLETION_OFFSET : currentMaxDistance - COMPLETION_OFFSET;
+        const backendPushTimeElapsed = distance !== null && beltSpeed > 0 ? distance / beltSpeed : null;
 
         if (distance !== null && positionCm >= distance - COMPLETION_OFFSET && !item.pusherActivated) {
             item.pusherActivated = true;
-            item.status = "routing";
-            item.start_time = currentTime;
             document.dispatchEvent(new CustomEvent('pusherActivate', {
                 detail: { barcode: barcode, pusher: item.pusher, distance: distance }
             }));
             updateActiveItemsTableFromFrontendItems();
-        } else if (positionCm >= removalThreshold) {
+        }
+        if (backendPushTimeElapsed !== null && elapsed >= backendPushTimeElapsed) {
+            itemsToRemove.push(barcode);
+        } else if (distance === null && positionCm >= removalThresholdCm) {
             itemsToRemove.push(barcode);
         }
     });
@@ -323,6 +326,21 @@ function updateTablePositions() {
     document.dispatchEvent(new CustomEvent('activeItemsUpdated', {
         detail: { items: Array.from(frontendItems.values()) }
     }));
+}
+
+function loadSettingsForBelt() {
+    fetch("/get-settings")
+        .then(function (response) { return response.json(); })
+        .then(function (settings) {
+            var speed = Number(settings && settings.belt_speed);
+            currentBeltSpeed = (speed > 0) ? speed : 32.1;
+            currentMaxDistance = 972;
+            if (settings && settings.pushers && typeof settings.pushers === "object") {
+                var distances = Object.values(settings.pushers).map(function (p) { return p && p.distance != null ? Number(p.distance) : 0; });
+                if (distances.length) currentMaxDistance = Math.max.apply(null, distances);
+            }
+        })
+        .catch(function () {});
 }
 
 function startPositionUpdateLoop() {
@@ -379,7 +397,21 @@ document.addEventListener("DOMContentLoaded", () => {
                 try {
                     if (data && data.barcode) {
                         let existingItem = frontendItems.get(data.barcode);
-                        if (existingItem) {
+                        if (!existingItem) {
+                            existingItem = {
+                                barcode: data.barcode,
+                                start_time: data.start_time,
+                                positionId: data.positionId,
+                                positionCm: data.positionCm,
+                                pusher: data.pusher,
+                                label: data.label,
+                                distance: data.distance,
+                                status: data.status || "pending",
+                                created_at: data.created_at || new Date().toLocaleTimeString(),
+                                pusherActivated: false
+                            };
+                            frontendItems.set(data.barcode, existingItem);
+                        } else {
                             existingItem.positionId = data.positionId;
                             existingItem.status = data.status;
                             existingItem.start_time = data.start_time;
@@ -387,7 +419,6 @@ document.addEventListener("DOMContentLoaded", () => {
                             existingItem.label = data.label;
                             existingItem.distance = data.distance;
                         }
-                        console.log(existingItem);
                     }
 
                     updateActiveItemsTableFromFrontendItems();
@@ -414,6 +445,8 @@ document.addEventListener("DOMContentLoaded", () => {
         testBtn.addEventListener("click", runIntegrationTest);
     }
 
+    loadSettingsForBelt();
+    document.addEventListener("settingsUpdated", loadSettingsForBelt);
     startPositionUpdateLoop();
 });
 
