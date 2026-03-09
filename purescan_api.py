@@ -27,6 +27,9 @@ _token_lock = threading.Lock()
 _api_cache: Dict[str, tuple] = {}
 _cache_ttl = 300
 
+def clear_cache_entry(barcode: str) -> None:
+    _api_cache.pop(barcode, None)
+
 def init_session():
     global _session
     _session = requests.Session()

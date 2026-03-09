@@ -765,7 +765,6 @@ class ConveyorSystem3D {
 
 
     activatePusher(pusherNumber) {
-        console.log('activatePusher', pusherNumber);
         if (pusherNumber < 1 || pusherNumber > 8) {
             return;
         }
@@ -1312,14 +1311,10 @@ class ConveyorSystem3D {
     }
 
     pushItemIntoBucket(item, pusherNumber) {
-        console.log('pushItemIntoBucket', item, pusherNumber);
-        // Animate item being pushed off belt and falling into bucket
         if (!item || !this.scene) return;
         
-        // Find the bucket for this pusher
         const pusher = this.pushers[pusherNumber - 1];
         if (!pusher || !pusher.userData.bucket) {
-            // No bucket found, just remove item
             this.removeItem(item);
             return;
         }
@@ -1327,7 +1322,6 @@ class ConveyorSystem3D {
         const bucket = pusher.userData.bucket;
         const bucketPosition = bucket.position;
         
-        // Starting position (on belt)
         const startX = item.position.x;
         const startY = item.position.y;
         const startZ = item.position.z;
