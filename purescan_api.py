@@ -24,12 +24,6 @@ _session_lock = threading.Lock()
 _token = None
 _token_lock = threading.Lock()
 
-_api_cache: Dict[str, tuple] = {}
-_cache_ttl = 300
-
-def clear_cache_entry(barcode: str) -> None:
-    _api_cache.pop(barcode, None)
-
 def init_session():
     global _session
     _session = requests.Session()
@@ -135,16 +129,6 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
     if not DATA_URL:
         return None
 
-    current_time = time.time()
-
-    if barcode in _api_cache:
-        cached_data, cached_time = _api_cache[barcode]
-        if current_time - cached_time < _cache_ttl:
-            await asyncio.sleep(0)
-            return cached_data
-        else:
-            del _api_cache[barcode]
-
     try:
         with _token_lock:
             token = _token
@@ -170,7 +154,6 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                     product_data = await response.json()
                     label = _label_from_purescan_response(product_data)
                     pusher_data = get_pusher_number(label)
-                    _api_cache[barcode] = (pusher_data, current_time)
                     result = pusher_data
                 elif response.status == 401:
                     logger.warning(f"⚠️ Token expired (401), refreshing token for barcode {barcode}")
@@ -190,7 +173,6 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                                         product_data = await retry_response.json()
                                         label = _label_from_purescan_response(product_data)
                                         pusher_data = get_pusher_number(label)
-                                        _api_cache[barcode] = (pusher_data, current_time)
                                         result = pusher_data
                                     else:
                                         logger.error(f"❌ Retry after token refresh failed with status {retry_response.status}")
@@ -207,7 +189,6 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                         logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}. Response: {error_body}")
                         label = "Extra"
                         pusher_data = get_pusher_number(label)
-                        _api_cache[barcode] = (pusher_data, current_time)
                         result = pusher_data
                     except Exception:
                         logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}")

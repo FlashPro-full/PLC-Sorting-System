@@ -16,7 +16,7 @@ from routes.settings import settings_bp
 
 from barcode_scanner import connect_barcode_signal
 from plc import connect_photo_eye_signal, connect_plc, write_bucket, read_photo_eye
-from purescan_api import request_purescan_async, init_session, init_token, clear_cache_entry
+from purescan_api import request_purescan_async, init_session, init_token
 
 load_dotenv()
 
@@ -159,7 +159,6 @@ def on_purescan_response(barcode, response):
             book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
 
     socketio.emit('update_book', book_dict[barcode])
-    clear_cache_entry(barcode)
 
 def _handle_purescan_error(barcode, error):
     if not barcode:
