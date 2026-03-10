@@ -4,7 +4,7 @@ import json
 settings_bp = Blueprint('settings', __name__)
 
 DISTANCE_LABELS = [
-    "FBA", "MF", "SBYB", "Reject Book", "Reject Music",
+    "FBA", "MF", "Reject Blu-ray", "Reject Book", "Reject Music",
     "Reject DVD", "Reject Video Game", "Extra", "None"
 ]
 
