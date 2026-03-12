@@ -118,7 +118,7 @@ def _label_from_purescan_response(product_data: Dict) -> str:
         if mf.get('accept') is True:
             return 'MF'
         category = product.get('category')
-        if category != 'Book' and category != 'DVD' and category != 'Video Game' and category != 'Music':
+        if category != 'Book' and category != 'DVD' and category != 'Video Game' and category != 'Music' and category != 'Blu-ray':
             return 'Extra'
         else:
             return f'Reject {category}'
@@ -127,26 +127,26 @@ def _label_from_purescan_response(product_data: Dict) -> str:
 async def request_purescan(barcode: str) -> Optional[Dict]:
     global _token
     if not DATA_URL:
-        return None
+        return "Extra"
 
     try:
         with _token_lock:
             token = _token
         if not token:
             logger.warning(f"⚠️ No token available for barcode {barcode}")
-            return None
+            return "Extra"
 
         async_session = await _get_async_session()
         if not async_session:
             logger.error(f"❌ Failed to get async session for barcode {barcode}")
-            return None
+            return "Extra"
 
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {token}',
         }
         payload = {'barcode': barcode}
-        result = None
+        result = "Extra"
 
         try:
             async with async_session.post(DATA_URL, json=payload, headers=headers) as response:
@@ -176,13 +176,13 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                                         result = pusher_data
                                     else:
                                         logger.error(f"❌ Retry after token refresh failed with status {retry_response.status}")
-                                        result = None
+                                        result = "Extra"
                             else:
                                 logger.error(f"❌ Failed to refresh token")
-                                result = None
+                                result = "Extra"
                     except Exception as e:
                         logger.error(f"❌ Error refreshing token: {e}", exc_info=True)
-                        result = None
+                        result = "Extra"
                 else:
                     try:
                         error_body = await response.text()
@@ -194,13 +194,13 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                         logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}")
         except asyncio.TimeoutError:
             logger.error(f"⏱️ Timeout requesting Purescan API for barcode {barcode}")
-            result = None
+            result = "Extra"
         except aiohttp.ClientError as e:
             logger.error(f"❌ Client error requesting Purescan API for barcode {barcode}: {e}")
-            result = None
+            result = "Extra"
         except Exception as e:
             logger.error(f"❌ Unexpected error in request_purescan for barcode {barcode}: {e}", exc_info=True)
-            result = None
+            result = "Extra"
         finally:
             if async_session:
                 try:
@@ -211,7 +211,7 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
         return result
     except Exception as e:
         logger.error(f"❌ Fatal error in request_purescan for barcode {barcode}: {e}", exc_info=True)
-        return None
+        return "Extra"
 
 from promise import Promise
 
