@@ -18,13 +18,12 @@ from barcode_scanner import connect_barcode_signal
 from plc import connect_photo_eye_signal, connect_plc, write_bucket, read_photo_eye
 from purescan_api import request_purescan_async, init_session, init_token
 from timer import start_interval_timer
+from state import book_dict
 
 load_dotenv()
 
 barcode_queue: deque = deque()
 queue_lock = threading.Lock()
-
-book_dict: Dict[str, dict] = {}
 
 positionId = 100
 

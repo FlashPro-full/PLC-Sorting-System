@@ -1,6 +1,7 @@
 import threading
 import time
 from plc import write_bucket
+from state import book_dict
 
 INTERVAL_100MS = 0.1
 _timer_thread = None
@@ -10,8 +11,6 @@ _timer_lock = threading.Lock()
 def on_interval_100ms():
     current_time = time.time()
     to_remove = []
-
-    from app import book_dict
 
     for barcode in list(book_dict):
         item = book_dict.get(barcode)
