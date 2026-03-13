@@ -102,16 +102,14 @@ def read_photo_eye():
     return 0
 
 def connect_photo_eye_signal(callback):
+    global _photo_eye_callback
     with _photo_eye_callbacks_lock:
-        # if callback not in _photo_eye_callbacks:
-        #     _photo_eye_callbacks.append(callback)
         _photo_eye_callback = callback
         print(f"✅ Registered photo eye callback: {callback.__name__}", flush=True)
 
 def disconnect_photo_eye_signal(callback):
+    global _photo_eye_callback
     with _photo_eye_callbacks_lock:
-        # if callback in _photo_eye_callbacks:
-        #     _photo_eye_callbacks.remove(callback)
         _photo_eye_callback = None
 
 def _photo_eye_monitor_loop():
@@ -128,12 +126,12 @@ def _photo_eye_monitor_loop():
             current_value = read_photo_eye()
 
             if current_value == 1 and last_value == 0:
-                # for callback in _photo_eye_callbacks:
                 callback = _photo_eye_callback
-                try:
-                    threading.Thread(target=callback, args=(), daemon=True).start()
-                except:
-                    pass
+                if callback is not None:
+                    try:
+                        threading.Thread(target=callback, args=(), daemon=True).start()
+                    except Exception:
+                        pass
 
             last_value = current_value
             time.sleep(0.1)

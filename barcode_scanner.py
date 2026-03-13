@@ -57,12 +57,11 @@ def _on_key_press(key):
                         if barcode and barcode != _last_barcode:
                             _last_barcode = barcode
                             with _barcode_callbacks_lock:
-                                callbacks = _barcode_callbacks.copy()
-                            
-                            for callback in callbacks:
+                                callback = _barcode_callback
+                            if callback is not None:
                                 try:
                                     threading.Thread(target=callback, args=(barcode,), daemon=True).start()
-                                except:
+                                except Exception:
                                     pass
             except AttributeError:
                 pass
@@ -188,16 +187,14 @@ def read_barcode():
     return None
 
 def connect_barcode_signal(callback):
+    global _barcode_callback
     with _barcode_callbacks_lock:
-        # if callback not in _barcode_callbacks:
-        #     _barcode_callbacks.append(callback)
         _barcode_callback = callback
         print(f"✅ Registered barcode callback: {callback.__name__}", flush=True)
 
 def disconnect_barcode_signal(callback):
+    global _barcode_callback
     with _barcode_callbacks_lock:
-        # if callback in _barcode_callbacks:
-        #     _barcode_callbacks.remove(callback)
         _barcode_callback = None
 
 def _barcode_scanner_loop():
@@ -213,14 +210,12 @@ def _barcode_scanner_loop():
             if barcode and barcode != _last_barcode:
                 _last_barcode = barcode
                 with _barcode_callbacks_lock:
-                    # callbacks = _barcode_callbacks.copy()
                     callback = _barcode_callback
-                
-                # for callback in callbacks:
-                try:
-                    threading.Thread(target=callback, args=(barcode,), daemon=True).start()
-                except:
-                    pass
+                if callback is not None:
+                    try:
+                        threading.Thread(target=callback, args=(barcode,), daemon=True).start()
+                    except Exception:
+                        pass
             
             time.sleep(0.01)
         except:
@@ -251,11 +246,11 @@ def start_barcode_scanner():
                             user_input = user_input.strip()
                             if user_input:
                                 with _barcode_callbacks_lock:
-                                    callbacks = _barcode_callbacks.copy()
-                                for callback in callbacks:
+                                    callback = _barcode_callback
+                                if callback is not None:
                                     try:
                                         threading.Thread(target=callback, args=(user_input,), daemon=True).start()
-                                    except:
+                                    except Exception:
                                         pass
                     except (EOFError, KeyboardInterrupt):
                         break
