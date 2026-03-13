@@ -91,7 +91,7 @@ function updateActiveItemsTableFromData(data) {
                 let positionCm = "0.0 cm";
                 if (item.positionCm !== undefined && item.positionCm !== null) {
                     positionCm = parseFloat(item.positionCm).toFixed(1) + " cm";
-                } else if (item.start_time && (item.status === "progress" || item.status === "fetching") && item.positionId) {
+                } else if (item.start_time && (item.status === "fetching") && item.positionId) {
                     const startTime = typeof item.start_time === 'string' ? parseFloat(item.start_time) : item.start_time;
                     const currentTime = Date.now() / 1000;
                     const elapsed = currentTime - startTime;
@@ -183,7 +183,9 @@ async function updateActiveItemsTable() {
                 barcode: barcode,
                 ...itemData
             }));
-            updateActiveItemsTableFromData({ items: items, count: items.length, timestamp: data.timestamp });
+            var w = createSocketHandlerWorker();
+            if (w) w.postMessage({ type: "initial_items", items: items });
+            else updateActiveItemsTableFromData({ items: items, count: items.length, timestamp: data.timestamp });
         }
     } catch (error) {
     }
@@ -227,10 +229,37 @@ function updateSystemStatusFromData(status) {
 let socket = null;
 let frontendItems = new Map();
 let positionUpdateIntervalId = null;
+let socketHandlerWorker = null;
 let currentBeltSpeed = 32.1;
 let currentMaxDistance = 972;
 const COMPLETION_OFFSET = 3.21;
 const UPDATE_INTERVAL = 100;
+
+function createSocketHandlerWorker() {
+    if (socketHandlerWorker) return socketHandlerWorker;
+    try {
+        var workerUrl = (document.currentScript && document.currentScript.src)
+            ? document.currentScript.src.replace(/script\.js(\?.*)?$/i, "socket-handler.worker.js")
+            : (typeof window !== "undefined" && window.location ? window.location.origin + "/static/socket-handler.worker.js" : "");
+        if (!workerUrl) return null;
+        socketHandlerWorker = new Worker(workerUrl);
+        socketHandlerWorker.onmessage = function (e) {
+            const msg = e.data;
+            if (!msg || !msg.type) return;
+            if (msg.type === "items_updated") {
+                const items = msg.items || [];
+                frontendItems = new Map(items.map(function (i) { return [i.barcode, i]; }));
+                updateActiveItemsTableFromData({ items: items });
+                document.dispatchEvent(new CustomEvent("activeItemsUpdated", { detail: { items: items } }));
+            } else if (msg.type === "system_status") {
+                updateSystemStatusFromData(msg.status || {});
+            } else if (msg.type === "pusher_activate" && msg.detail) {
+                document.dispatchEvent(new CustomEvent("pusherActivate", { detail: msg.detail }));
+            }
+        };
+    } catch (err) {}
+    return socketHandlerWorker;
+}
 
 function updateTablePositions() {
     const tbody = document.getElementById("active-items-tbody");
@@ -307,7 +336,7 @@ function updateTablePositions() {
             return;
         }
 
-        if ((item.status === "progress" || item.status === "fetching") && item.positionId && item.positionCm !== undefined && item.positionCm !== null) {
+        if ((item.status === "fetching") && item.positionId && item.positionCm !== undefined && item.positionCm !== null) {
             const positionCm = parseFloat(item.positionCm).toFixed(1) + " cm";
             const positionCell = row.querySelector('td[data-position-id]');
             if (positionCell) {
@@ -339,100 +368,74 @@ function loadSettingsForBelt() {
                 var distances = Object.values(settings.pushers).map(function (p) { return p && p.distance != null ? Number(p.distance) : 0; });
                 if (distances.length) currentMaxDistance = Math.max.apply(null, distances);
             }
+            var w = createSocketHandlerWorker();
+            if (w) w.postMessage({ type: "config", beltSpeed: currentBeltSpeed, maxDistance: currentMaxDistance });
         })
         .catch(function () {});
 }
 
 function startPositionUpdateLoop() {
-    if (positionUpdateIntervalId === null) {
-        updateTablePositions();
-        positionUpdateIntervalId = setInterval(updateTablePositions, UPDATE_INTERVAL);
+    if (positionUpdateIntervalId !== null) return;
+    positionUpdateIntervalId = true;
+    var w = createSocketHandlerWorker();
+    if (w) {
+        w.postMessage({ type: "start_tick" });
     }
 }
 
 function stopPositionUpdateLoop() {
     if (positionUpdateIntervalId !== null) {
-        clearInterval(positionUpdateIntervalId);
+        if (socketHandlerWorker) socketHandlerWorker.postMessage({ type: "stop_tick" });
         positionUpdateIntervalId = null;
     }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    createSocketHandlerWorker();
     try {
         socket = io();
 
         if (socket) {
             socket.on('connect', () => {
+                console.log("Connected to server");
             });
 
             socket.on('disconnect', () => {
+                console.log("Disconnected from server");
             });
 
             socket.on('add_book', (itemData) => {
-                try {
-                    if (itemData && itemData.barcode) {
-                        const item = {
-                            barcode: itemData.barcode,
-                            start_time: itemData.start_time,
-                            positionId: itemData.positionId,
-                            positionCm: itemData.positionCm,
-                            pusher: itemData.pusher,
-                            label: itemData.label,
-                            distance: itemData.distance,
-                            status: itemData.status,
-                            created_at: itemData.created_at,
-                            pusherActivated: false
-                        };
-                        frontendItems.set(itemData.barcode, item);
-                        updateActiveItemsTableFromFrontendItems();
-                        document.dispatchEvent(new CustomEvent('activeItemsUpdated', {
-                            detail: { items: Array.from(frontendItems.values()) }
-                        }));
-                    }
-                } catch (error) {
+                if (socketHandlerWorker && itemData) {
+                    socketHandlerWorker.postMessage({ type: 'add_book', item: itemData });
+                } else if (itemData && itemData.barcode) {
+                    const item = { barcode: itemData.barcode, start_time: itemData.start_time, positionId: itemData.positionId, positionCm: itemData.positionCm, pusher: itemData.pusher, label: itemData.label, distance: itemData.distance, status: itemData.status, created_at: itemData.created_at, pusherActivated: false };
+                    frontendItems.set(itemData.barcode, item);
+                    updateActiveItemsTableFromFrontendItems();
+                    document.dispatchEvent(new CustomEvent('activeItemsUpdated', { detail: { items: Array.from(frontendItems.values()) } }));
                 }
             });
 
             socket.on('update_book', (data) => {
-                try {
-                    if (data && data.barcode) {
-                        let existingItem = frontendItems.get(data.barcode);
-                        if (!existingItem) {
-                            existingItem = {
-                                barcode: data.barcode,
-                                start_time: data.start_time,
-                                positionId: data.positionId,
-                                positionCm: data.positionCm,
-                                pusher: data.pusher,
-                                label: data.label,
-                                distance: data.distance,
-                                status: data.status || "pending",
-                                created_at: data.created_at || new Date().toLocaleTimeString(),
-                                pusherActivated: false
-                            };
-                            frontendItems.set(data.barcode, existingItem);
-                        } else {
-                            existingItem.positionId = data.positionId;
-                            existingItem.status = data.status;
-                            existingItem.start_time = data.start_time;
-                            existingItem.pusher = data.pusher;
-                            existingItem.label = data.label;
-                            existingItem.distance = data.distance;
-                        }
+                if (socketHandlerWorker && data) {
+                    socketHandlerWorker.postMessage({ type: 'update_book', data: data });
+                } else if (data && data.barcode) {
+                    let existingItem = frontendItems.get(data.barcode);
+                    if (!existingItem) {
+                        existingItem = { barcode: data.barcode, start_time: data.start_time, positionId: data.positionId, positionCm: data.positionCm, pusher: data.pusher, label: data.label, distance: data.distance, status: data.status || "pending", created_at: data.created_at || new Date().toLocaleTimeString(), pusherActivated: false };
+                        frontendItems.set(data.barcode, existingItem);
+                    } else {
+                        existingItem.positionId = data.positionId; existingItem.status = data.status; existingItem.start_time = data.start_time; existingItem.pusher = data.pusher; existingItem.label = data.label; existingItem.distance = data.distance;
                     }
-
                     updateActiveItemsTableFromFrontendItems();
-                    document.dispatchEvent(new CustomEvent('activeItemsUpdated', {
-                        detail: { items: Array.from(frontendItems.values()) }
-                    }));
-                } catch (error) {
+                    document.dispatchEvent(new CustomEvent('activeItemsUpdated', { detail: { items: Array.from(frontendItems.values()) } }));
                 }
             });
 
             socket.on('system_status', (status) => {
-                try {
+                if (socketHandlerWorker && status) {
+                    socketHandlerWorker.postMessage({ type: 'system_status', status: status });
+                } else if (status) {
                     updateSystemStatusFromData(status);
-                } catch (error) {
                 }
             });
 

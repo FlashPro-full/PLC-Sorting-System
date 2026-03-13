@@ -17,6 +17,7 @@ from routes.settings import settings_bp
 from barcode_scanner import connect_barcode_signal
 from plc import connect_photo_eye_signal, connect_plc, write_bucket, read_photo_eye
 from purescan_api import request_purescan_async, init_session, init_token
+from timer import start_interval_timer
 
 load_dotenv()
 
@@ -26,11 +27,6 @@ queue_lock = threading.Lock()
 book_dict: Dict[str, dict] = {}
 
 positionId = 100
-
-INTERVAL_100MS = 0.1
-_timer_thread = None
-_timer_running = False
-_timer_lock = threading.Lock()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
@@ -42,50 +38,10 @@ _request_start_times = {}
 _request_times_lock = threading.Lock()
 
 
-def on_interval_100ms():
-    current_time = time.time()
-    to_remove = []
-
-    for barcode in list(book_dict):
-        item = book_dict.get(barcode)
-        if not item:
-            continue
-        if (item.get("status") == "progress"
-                and item.get("push_time") is not None
-                and current_time >= item.get("push_time")
-                and item.get("positionId") is not None
-                and item.get("pusher") is not None):
-            write_bucket(item.get("pusher"))
-            to_remove.append(barcode)
-
-    for barcode in to_remove:
-        del book_dict[barcode]
-
-def _timer_loop():
-    while _timer_running:
-        tick_start = time.perf_counter()
-        try:
-            on_interval_100ms()
-        except Exception:
-            pass
-        elapsed = time.perf_counter() - tick_start
-        sleep_time = max(0.0, INTERVAL_100MS - elapsed)
-        if sleep_time > 0:
-            time.sleep(sleep_time)
-
-
-def start_interval_timer():
-    global _timer_thread, _timer_running
-    with _timer_lock:
-        if _timer_thread is not None and _timer_thread.is_alive():
-            return
-        _timer_running = True
-    _timer_thread = threading.Thread(target=_timer_loop, daemon=True)
-    _timer_thread.start()
-
-
 def on_barcode_scanned(barcode):
     scan_time = time.time()
+
+    print(f"scanned: {barcode} on {scan_time}", flush=True)
     
     with _pending_lock:
         if barcode in _pending_requests:
@@ -139,6 +95,8 @@ def on_purescan_response(barcode, response):
     if not response:
         return
     
+    print(f"fetched: {response} on {time.time()}", flush=True)
+    
     belt_speed = 32.1
     with open("settings.json", "r") as f:
         belt_speed = json.load(f)['belt_speed']
@@ -158,7 +116,7 @@ def on_purescan_response(barcode, response):
             book_dict[barcode]["status"] = "progress"
             book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
 
-    socketio.emit('update_book', book_dict[barcode])
+        socketio.emit('update_book', book_dict[barcode])
 
 def _handle_purescan_error(barcode, error):
     if not barcode:
@@ -200,7 +158,9 @@ def _handle_purescan_error(barcode, error):
         def on_error_retry(error):
             with _pending_lock:
                 _pending_requests.discard(barcode)
-        
+            with _request_times_lock:
+                _request_start_times.pop(barcode, None)
+
         promise = request_purescan_async(barcode)
         promise.then(on_success_retry).catch(on_error_retry)
         return
@@ -210,6 +170,8 @@ def on_photo_eye_triggered():
     positionId += 1
     if positionId > 150:
         positionId = 101
+    
+    print(f"beam break: {positionId} on {time.time()}", flush=True)
     
     photo_eye_trigger_time = time.time()
     barcode = None
@@ -260,20 +222,7 @@ def check_connections():
             "connected": photo_eye_status,
             "message": "Not Ready" if photo_eye_value == None else "Ready"
         }
-    }
-
-def broadcast_system_status():
-    try:
-        status = check_connections()
-        system_status = {
-            "plc": {"connected": status.get("plc", False), "message": "Connected" if status.get("plc") else "Disconnected"},
-            "scanner": {"connected": status.get("barcode_scanner", False), "message": "Connected" if status.get("barcode_scanner") else "Disconnected", "mode": os.getenv("SCAN_MODE", "KEYBOARD")},
-            "photo_eye": status.get("photo_eye", {"connected": False, "message": "Not Ready"})
-        }
-
-        socketio.emit('system_status', system_status)
-    except Exception:
-        pass
+    }   
 
 _client_already_connected = False
 
@@ -286,7 +235,17 @@ def _mark_client_connected():
 def handle_connect():
     global _client_already_connected
     _client_already_connected = True
-    broadcast_system_status()
+    try:
+        status = check_connections()
+        system_status = {
+            "plc": {"connected": status.get("plc", False), "message": "Connected" if status.get("plc") else "Disconnected"},
+            "scanner": {"connected": status.get("barcode_scanner", False), "message": "Connected" if status.get("barcode_scanner") else "Disconnected", "mode": os.getenv("SCAN_MODE", "KEYBOARD")},
+            "photo_eye": status.get("photo_eye", {"connected": False, "message": "Not Ready"})
+        }
+
+        socketio.emit('system_status', system_status)
+    except Exception:
+        pass
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -353,5 +312,7 @@ if __name__ == '__main__':
 
     browser_thread = threading.Thread(target=open_browser, daemon=True)
     browser_thread.start()
+    
+    time.sleep(1)
     
     socketio.run(app, debug=debug_mode, host=host, port=port, use_reloader=False)
