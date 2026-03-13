@@ -10,23 +10,26 @@ _timer_lock = threading.Lock()
 
 def on_interval_100ms():
     current_time = time.time()
-    to_remove = []
 
     for barcode in list(book_dict):
         item = book_dict.get(barcode)
         if not item:
             continue
+        
+        start = item.get("start_time")
+        if start is not None and current_time - start >= 1 and item.get("status") == "pending":
+            del book_dict[barcode]
+            continue
+
         if (item.get("status") == "progress"
                 and item.get("push_time") is not None
                 and current_time >= item.get("push_time")
                 and item.get("positionId") is not None
                 and item.get("pusher") is not None):
             write_bucket(item.get("pusher"))
-            to_remove.append(barcode)
+            del book_dict[barcode]
 
-    for barcode in to_remove:
-        del book_dict[barcode]
-
+        
 def _timer_loop():
     while _timer_running:
         tick_start = time.perf_counter()

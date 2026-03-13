@@ -153,6 +153,7 @@ def _handle_purescan_error(barcode, error):
                     book_dict[barcode]["pusher"] = pusher_data.get("pusher")
                         
                 socketio.emit('update_book', book_dict[barcode])
+                del book_dict[barcode]
         
         def on_error_retry(error):
             with _pending_lock:
