@@ -2,6 +2,7 @@ const COMPLETION_OFFSET = 3.21;
 const UPDATE_INTERVAL = 100;
 const DEFAULT_BELT_SPEED = 32.1;
 const DEFAULT_MAX_DISTANCE = 972;
+const FETCH_TIMEOUT_SEC = 5;
 
 let items = {};
 let beltSpeed = DEFAULT_BELT_SPEED;
@@ -52,13 +53,23 @@ function runPositionUpdate() {
 
     Object.keys(items).forEach(function (barcode) {
         const item = items[barcode];
-        if (item.status === "routing" || item.status === "completed") {
+        if (item.status === "routing" || item.status === "completed" || item.status === "No response") {
             if (item.start_time == null) {
                 item.start_time = currentTime;
             }
             const routingDuration = currentTime - item.start_time;
             if (routingDuration >= 1.5) {
                 itemsToRemove.push(barcode);
+            }
+            return;
+        }
+
+        if (item.status === "fetching" && item.start_time != null) {
+            const startTime = typeof item.start_time === "string" ? parseFloat(item.start_time) : item.start_time;
+            const elapsed = currentTime - startTime;
+            if (elapsed >= FETCH_TIMEOUT_SEC) {
+                item.status = "No response";
+                item.start_time = currentTime;
             }
             return;
         }

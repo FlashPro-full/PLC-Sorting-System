@@ -112,6 +112,9 @@ function updateActiveItemsTableFromData(data) {
                 } else if (status === "routing" || status === "completed") {
                     statusColor = "#3498db";
                     statusBg = "rgba(52, 152, 219, 0.1)";
+                } else if (status === "No response") {
+                    statusColor = "#e74c3c";
+                    statusBg = "rgba(231, 76, 60, 0.1)";
                 }
 
                 const distance = item.distance !== undefined && item.distance !== null ? item.distance.toFixed(1) + " cm" : "N/A";
@@ -139,6 +142,10 @@ function updateActiveItemsTableFromData(data) {
             } catch (error) {
             }
         });
+        for (let i = items.length - 1; i >= 0; i--) {
+            const row = existingRows[items[i].barcode];
+            if (row && row.parentNode) tbody.insertBefore(row, tbody.firstChild);
+        }
 
         if (countSpan) {
             countSpan.textContent = itemCount;
