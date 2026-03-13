@@ -1,3 +1,7 @@
+import threading
+import time
+from purescan import write_bucket
+
 INTERVAL_100MS = 0.1
 _timer_thread = None
 _timer_running = False
@@ -7,7 +11,7 @@ def on_interval_100ms():
     current_time = time.time()
     to_remove = []
 
-    from app.py import book_dict
+    from app import book_dict
 
     for barcode in list(book_dict):
         item = book_dict.get(barcode)
