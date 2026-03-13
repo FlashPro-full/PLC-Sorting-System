@@ -16,7 +16,8 @@ UNIT_ID = int(os.getenv('MODBUS_UNIT_ID', '1'))
 plc = None
 modbus_lock = threading.Lock()
 
-_photo_eye_callbacks = []
+# _photo_eye_callbacks = []
+_photo_eye_callback = None
 _photo_eye_callbacks_lock = threading.Lock()
 _photo_eye_monitor_thread = None
 _photo_eye_monitor_running = False
@@ -102,14 +103,16 @@ def read_photo_eye():
 
 def connect_photo_eye_signal(callback):
     with _photo_eye_callbacks_lock:
-        if callback not in _photo_eye_callbacks:
-            _photo_eye_callbacks.append(callback)
-            print(f"✅ Registered photo eye callback: {callback.__name__}", flush=True)
+        # if callback not in _photo_eye_callbacks:
+        #     _photo_eye_callbacks.append(callback)
+        _photo_eye_callback = callback
+        print(f"✅ Registered photo eye callback: {callback.__name__}", flush=True)
 
 def disconnect_photo_eye_signal(callback):
     with _photo_eye_callbacks_lock:
-        if callback in _photo_eye_callbacks:
-            _photo_eye_callbacks.remove(callback)
+        # if callback in _photo_eye_callbacks:
+        #     _photo_eye_callbacks.remove(callback)
+        _photo_eye_callback = None
 
 def _photo_eye_monitor_loop():
     last_value = 0
@@ -125,14 +128,15 @@ def _photo_eye_monitor_loop():
             current_value = read_photo_eye()
 
             if current_value == 1 and last_value == 0:
-                for callback in _photo_eye_callbacks:
-                    try:
-                        threading.Thread(target=callback, args=(), daemon=True).start()
-                    except:
-                        pass
+                # for callback in _photo_eye_callbacks:
+                callback = _photo_eye_callback
+                try:
+                    threading.Thread(target=callback, args=(), daemon=True).start()
+                except:
+                    pass
 
             last_value = current_value
-            time.sleep(0.01)
+            time.sleep(0.1)
         except Exception:
             now = time.time()
             if now - last_error_log >= 30.0:

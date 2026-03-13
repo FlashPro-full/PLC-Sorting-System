@@ -14,7 +14,8 @@ BARCODE_BAUDRATE = int(os.getenv('SCAN_BAUD', os.getenv('SCANNER_BAUD', '19200')
 BARCODE_TIMEOUT = float(os.getenv('SCAN_TIMEOUT', '0.5'))
 BARCODE_MODE = str(os.getenv('SCAN_MODE', 'KEYBOARD')).upper()
 
-_barcode_callbacks: List[Callable[[str], None]] = []
+# _barcode_callbacks: List[Callable[[str], None]] = []
+_barcode_callback = None
 _barcode_callbacks_lock = threading.Lock()
 _barcode_scanner_thread = None
 _barcode_scanner_running = False
@@ -188,14 +189,16 @@ def read_barcode():
 
 def connect_barcode_signal(callback):
     with _barcode_callbacks_lock:
-        if callback not in _barcode_callbacks:
-            _barcode_callbacks.append(callback)
-            print(f"✅ Registered barcode callback: {callback.__name__}", flush=True)
+        # if callback not in _barcode_callbacks:
+        #     _barcode_callbacks.append(callback)
+        _barcode_callback = callback
+        print(f"✅ Registered barcode callback: {callback.__name__}", flush=True)
 
 def disconnect_barcode_signal(callback):
     with _barcode_callbacks_lock:
-        if callback in _barcode_callbacks:
-            _barcode_callbacks.remove(callback)
+        # if callback in _barcode_callbacks:
+        #     _barcode_callbacks.remove(callback)
+        _barcode_callback = None
 
 def _barcode_scanner_loop():
     global _barcode_scanner_running, _last_barcode
@@ -210,13 +213,14 @@ def _barcode_scanner_loop():
             if barcode and barcode != _last_barcode:
                 _last_barcode = barcode
                 with _barcode_callbacks_lock:
-                    callbacks = _barcode_callbacks.copy()
+                    # callbacks = _barcode_callbacks.copy()
+                    callback = _barcode_callback
                 
-                for callback in callbacks:
-                    try:
-                        threading.Thread(target=callback, args=(barcode,), daemon=True).start()
-                    except:
-                        pass
+                # for callback in callbacks:
+                try:
+                    threading.Thread(target=callback, args=(barcode,), daemon=True).start()
+                except:
+                    pass
             
             time.sleep(0.01)
         except:
