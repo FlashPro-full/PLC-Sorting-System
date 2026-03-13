@@ -66,6 +66,8 @@ function updateActiveItemsTableFromData(data) {
             }
         });
 
+        items = items.slice().reverse();
+        
         items.forEach((item) => {
             try {
                 const barcode = item.barcode;
