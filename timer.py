@@ -1,6 +1,6 @@
 import threading
 import time
-from purescan import write_bucket
+from plc import write_bucket
 
 INTERVAL_100MS = 0.1
 _timer_thread = None
