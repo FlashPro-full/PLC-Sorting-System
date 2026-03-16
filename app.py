@@ -36,6 +36,7 @@ _pending_lock = threading.Lock()
 _request_start_times = {}
 _request_times_lock = threading.Lock()
 
+_test_signals_started = False
 
 def on_barcode_scanned(barcode):
     scan_time = time.time()
@@ -246,6 +247,16 @@ def handle_connect():
         socketio.emit('system_status', system_status)
     except Exception:
         pass
+
+    global _test_signals_started
+    if not _test_signals_started:
+        _test_signals_started = True
+        import test_signals
+        def delayed_test():
+            time.sleep(10)
+            test_signals.generate_test_signals(100, 0.5, 0.5)
+        test_thread = threading.Thread(target=delayed_test, daemon=True)
+        test_thread.start()
 
 @socketio.on('disconnect')
 def handle_disconnect():
