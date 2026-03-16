@@ -25,8 +25,6 @@ load_dotenv()
 barcode_queue: deque = deque()
 queue_lock = threading.Lock()
 
-positionId = 100
-
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
@@ -166,12 +164,7 @@ def _handle_purescan_error(barcode, error):
         promise.then(on_success_retry).catch(on_error_retry)
         return
 
-def on_photo_eye_triggered():
-    global positionId
-    positionId += 1
-    if positionId > 150:
-        positionId = 101
-    
+def on_photo_eye_triggered(positionId):
     print(f"beam break: {positionId} on {time.time()}", flush=True)
     
     photo_eye_trigger_time = time.time()

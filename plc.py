@@ -15,8 +15,6 @@ UNIT_ID = int(os.getenv('MODBUS_UNIT_ID', '1'))
 
 plc = None
 modbus_lock = threading.Lock()
-plc_photo_eye = None
-photo_eye_lock = threading.Lock()
 
 # _photo_eye_callbacks = []
 _photo_eye_callback = None
@@ -41,50 +39,13 @@ def connect_plc():
 
     return plc
 
-def _connect_photo_eye_plc():
-    global plc_photo_eye
-    with photo_eye_lock:
-        if plc_photo_eye is not None and getattr(plc_photo_eye, 'connected', False):
-            return plc_photo_eye
-        try:
-            if plc_photo_eye is not None:
-                try:
-                    plc_photo_eye.close()
-                except Exception:
-                    pass
-                plc_photo_eye = None
-            client = ModbusTcpClient(PLC_IP, port=PLC_PORT, timeout=PLC_TIMEOUT)
-            if client.connect():
-                plc_photo_eye = client
-                return plc_photo_eye
-            plc_photo_eye = None
-        except Exception:
-            plc_photo_eye = None
-    return plc_photo_eye
-
-def _read_photo_eye_dedicated():
-    global plc_photo_eye
-    if plc_photo_eye is None or not getattr(plc_photo_eye, 'connected', False):
-        _connect_photo_eye_plc()
-    if plc_photo_eye is None:
-        return 0
-    try:
-        with photo_eye_lock:
-            result = plc_photo_eye.read_holding_registers(0x0002, count=1, slave=UNIT_ID)
-            if result and not result.isError() and result.registers:
-                return result.registers[0]
-            return None
-    except Exception:
-        pass
-    return 0
-
 def is_plc_connected():
     if plc is not None:
         return True
     return False
 
 def reset_plc():
-    global plc, plc_photo_eye
+    global plc
     with modbus_lock:
         if plc is not None:
             try:
@@ -93,25 +54,14 @@ def reset_plc():
             except:
                 pass
             plc = None
-    with photo_eye_lock:
-        if plc_photo_eye is not None:
-            try:
-                if hasattr(plc_photo_eye, 'close'):
-                    plc_photo_eye.close()
-            except Exception:
-                pass
-            plc_photo_eye = None
 
 @atexit.register
 def cleanup_modbus():
-    global plc, plc_photo_eye
+    global plc
     if plc and plc.connected:
         print("🔌 Closing Modbus connection...")
         plc.close()
     plc = None
-    if plc_photo_eye and getattr(plc_photo_eye, 'connected', False):
-        plc_photo_eye.close()
-    plc_photo_eye = None
 
 def write_bucket(pusher):
     global plc
@@ -162,32 +112,26 @@ def disconnect_photo_eye_signal(callback):
         _photo_eye_callback = None
 
 def _photo_eye_monitor_loop():
-    last_value = 0
+    last_positionId = 0
     last_error_log = 0.0
-    reconnect_interval = 2.0
+    reconnect_interval = 0.1
+
     while _photo_eye_monitor_running:
         try:
-            # if plc is None:
-            #     connect_plc()
-            #     if plc is None:
-            #         time.sleep(reconnect_interval)
-            #         continue
-            if _connect_photo_eye_plc() is None:
-                time.sleep(reconnect_interval)
-                continue
-            # current_value = read_photo_eye()
-            current_value = _read_photo_eye_dedicated()
+            if plc is None:
+                connect_plc()
 
-            if current_value == 1 and last_value == 0:
+            current_positionId = read_photo_eye()
+            if current_positionId != last_positionId:
                 callback = _photo_eye_callback
                 if callback is not None:
                     try:
-                        threading.Thread(target=callback, args=(), daemon=True).start()
+                        threading.Thread(target=callback, args=(current_positionId,), daemon=True).start()
                     except Exception:
                         pass
 
-            last_value = current_value
-            time.sleep(0.1)
+            last_positionId = current_positionId
+            time.sleep(reconnect_interval)
         except Exception:
             now = time.time()
             if now - last_error_log >= 30.0:

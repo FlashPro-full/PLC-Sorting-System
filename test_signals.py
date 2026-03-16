@@ -45,14 +45,14 @@ def generate_test_signals(count=None, interval=0.5, delay_after_barcode=0.2):
             barcode = barcodes[i%19]
             
             try:
-                callback(barcode)
+                _barcode_callback(barcode)
             except Exception as e:
                 print(f"❌ Error calling barcode callback: {e}")
             
             time.sleep(delay_after_barcode)
             
             try:
-                callback()
+                _photo_eye_callback()
             except Exception as e:
                 print(f"❌ Error calling photo eye callback: {e}")
             
