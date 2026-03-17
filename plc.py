@@ -23,7 +23,9 @@ _photo_eye_callbacks_lock = threading.Lock()
 _photo_eye_monitor_thread = None
 _photo_eye_monitor_running = False
 
-
+def float_to_regs(value: float) -> list[int]:
+    hi, lo = struct.unpack(">HH", struct.pack(">f", float(value)))
+    return [hi, lo]
 
 def connect_plc():
     global plc
@@ -68,31 +70,30 @@ def cleanup_modbus():
 
 def write_pushers(values: list[float]):
     global plc
-    if len(values) > 8:
-        values = values[:8]
-    if len(values) < 8:
-        values = list(values) + [0.0] * (8 - len(values))
-    words = []
-    for v in values:
-        raw = struct.pack(">f", float(v))
-        words.extend(struct.unpack(">HH", raw))
+
     with modbus_lock:
         if plc is None:
             plc = connect_plc()
         try:
-            plc.write_registers(0x7000, words, slave=UNIT_ID)
+            regs = []
+            for v in values:
+                regs.extend(float_to_regs(v))
+            result = plc.write_registers(0x7000, regs, slave=UNIT_ID)
+            if result.isError():
+                print(f"❌ Modbus write error: {result}")
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
 
 def write_belt_speed(speed: float):
     global plc
+
     with modbus_lock:
         if plc is None:
             plc = connect_plc()
         try:
-            raw = struct.pack(">f", float(speed))
-            words = list(struct.unpack(">HH", raw))
-            plc.write_registers(0x7018, words, slave=UNIT_ID)
+            plc.write_registers(0x7018, float_to_regs(speed), slave=UNIT_ID)
+            if result.isError():
+                print(f"❌ Modbus write error: {result}")
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
 

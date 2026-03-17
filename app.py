@@ -20,6 +20,8 @@ from purescan_api import request_purescan_async, init_session, init_token
 
 load_dotenv()
 
+book_dict: Dict[str, dict] = {}
+
 barcode_queue: deque = deque()
 queue_lock = threading.Lock()
 
