@@ -97,6 +97,22 @@ def write_belt_speed(speed: float):
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
 
+def write_trigger_pusher(pusher: int):
+    global plc
+
+    with modbus_lock:
+        if plc is None:
+            plc = connect_plc()
+        try:
+            plc.write_register(0x0001, pusher, slave=UNIT_ID)
+            if result.isError():
+                print(f"❌ Modbus write error: {result}")
+                return 0
+            return 1
+        except Exception as e:
+            print(f"❌ Modbus write error: {e}")
+            return 0
+
 def write_bucket(pusher: int, position: int):
     global plc
 

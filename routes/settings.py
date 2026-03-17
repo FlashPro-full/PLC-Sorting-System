@@ -57,7 +57,7 @@ def trigger_pusher():
         return jsonify({"error": "Pusher must be 1-8"}), 400
     try:
         from plc import write_bucket
-        result = write_bucket(pusher)
+        result = write_trigger_pusher(pusher)
         if result == 1:
             return jsonify({"message": f"Pusher {pusher} triggered"})
         return jsonify({"error": "Trigger failed"}), 500
