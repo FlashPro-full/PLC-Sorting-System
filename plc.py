@@ -91,7 +91,7 @@ def write_belt_speed(speed: float):
         if plc is None:
             plc = connect_plc()
         try:
-            plc.write_registers(0x7018, float_to_regs(speed), slave=UNIT_ID)
+            result = plc.write_registers(0x7018, float_to_regs(speed), slave=UNIT_ID)
             if result.isError():
                 print(f"❌ Modbus write error: {result}")
         except Exception as e:
@@ -104,7 +104,7 @@ def write_trigger_pusher(pusher: int):
         if plc is None:
             plc = connect_plc()
         try:
-            plc.write_register(0x0001, pusher, slave=UNIT_ID)
+            result = plc.write_register(0x0001, pusher, slave=UNIT_ID)
             if result.isError():
                 print(f"❌ Modbus write error: {result}")
                 return 0
