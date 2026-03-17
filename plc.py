@@ -91,7 +91,7 @@ def write_belt_speed(speed: float):
             plc = connect_plc()
         try:
             raw = struct.pack(">f", float(speed))
-            words = struct.unpack(">HH", raw)
+            words = list(struct.unpack(">HH", raw))
             plc.write_registers(0x7018, words, slave=UNIT_ID)
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
