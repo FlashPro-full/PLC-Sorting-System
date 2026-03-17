@@ -1,4 +1,5 @@
 import json
+import struct
 import time
 import threading
 import atexit
@@ -21,6 +22,8 @@ _photo_eye_callback = None
 _photo_eye_callbacks_lock = threading.Lock()
 _photo_eye_monitor_thread = None
 _photo_eye_monitor_running = False
+
+
 
 def connect_plc():
     global plc
@@ -63,7 +66,37 @@ def cleanup_modbus():
         plc.close()
     plc = None
 
-def write_bucket(pusher):
+def write_pushers(values: list[float]):
+    global plc
+    if len(values) > 8:
+        values = values[:8]
+    if len(values) < 8:
+        values = list(values) + [0.0] * (8 - len(values))
+    words = []
+    for v in values:
+        raw = struct.pack(">f", float(v))
+        words.extend(struct.unpack(">HH", raw))
+    with modbus_lock:
+        if plc is None:
+            plc = connect_plc()
+        try:
+            plc.write_registers(0x7000, words, slave=UNIT_ID)
+        except Exception as e:
+            print(f"❌ Modbus write error: {e}")
+
+def write_belt_speed(speed: float):
+    global plc
+    with modbus_lock:
+        if plc is None:
+            plc = connect_plc()
+        try:
+            raw = struct.pack(">f", float(speed))
+            words = struct.unpack(">HH", raw)
+            plc.write_registers(0x7018, words, slave=UNIT_ID)
+        except Exception as e:
+            print(f"❌ Modbus write error: {e}")
+
+def write_bucket(pusher: int, position: int):
     global plc
 
     pusher_key = f"Pusher {pusher}"
@@ -76,11 +109,13 @@ def write_bucket(pusher):
         print(f"❌ Pusher {pusher} not found in settings.json")
         return -1
 
+    address = 0x0064 + (position - 101)
+    
     with modbus_lock:
         if plc is None:
             plc = connect_plc()
         try:
-            plc.write_register(0x0001, pusher, slave=UNIT_ID)
+            plc.write_register(address, pusher, slave=UNIT_ID)
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
 

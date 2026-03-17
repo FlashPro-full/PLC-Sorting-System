@@ -42,6 +42,7 @@ def generate_test_signals(count=None, interval=0.5, delay_after_barcode=0.2):
     
     try:
         for i in range(0, n):
+            positionId = (i%50) + 101
             barcode = barcodes[i%19]
             
             try:
@@ -52,7 +53,7 @@ def generate_test_signals(count=None, interval=0.5, delay_after_barcode=0.2):
             time.sleep(delay_after_barcode)
             
             try:
-                _photo_eye_callback()
+                _photo_eye_callback(positionId)
             except Exception as e:
                 print(f"❌ Error calling photo eye callback: {e}")
             

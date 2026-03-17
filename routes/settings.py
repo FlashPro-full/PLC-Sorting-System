@@ -38,6 +38,9 @@ def update_pushers():
             settings = json.load(f)
         with open("settings.json", "w") as f:
             json.dump({**settings, "pushers": pushers}, f, indent=2)
+        
+        from plc import write_pushers
+        write_pushers([pusher.get("distance") for pusher in pushers.values()])
         return jsonify({"message": "Pushers updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -76,6 +79,9 @@ def update_belt_speed():
             settings = json.load(f)
         with open("settings.json", "w") as f:
             json.dump({**settings, "belt_speed": speed}, f, indent=2)
+
+        from plc import write_belt_speed
+        write_belt_speed(speed)
         return jsonify({"message": "Belt speed updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

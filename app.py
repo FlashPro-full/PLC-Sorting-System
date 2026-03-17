@@ -17,8 +17,6 @@ from routes.settings import settings_bp
 from barcode_scanner import connect_barcode_signal
 from plc import connect_photo_eye_signal, connect_plc, write_bucket, read_photo_eye
 from purescan_api import request_purescan_async, init_session, init_token
-from timer import start_interval_timer
-from state import book_dict
 
 load_dotenv()
 
@@ -112,9 +110,12 @@ def on_purescan_response(barcode, response):
         
         if book_dict[barcode].get("status") == "fetching":
             book_dict[barcode]["status"] = "progress"
-            book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
 
         socketio.emit('update_book', book_dict[barcode])
+
+    if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
+        write_bucket(book_dict[barcode].get("pusher"), book_dict[barcode].get("positionId"))
+        del book_dict[barcode]
 
 def _handle_purescan_error(barcode, error):
     if not barcode:
@@ -152,7 +153,10 @@ def _handle_purescan_error(barcode, error):
                     book_dict[barcode]["pusher"] = pusher_data.get("pusher")
                         
                 socketio.emit('update_book', book_dict[barcode])
-                del book_dict[barcode]
+                
+                if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
+                    write_bucket(book_dict[barcode].get("pusher"), book_dict[barcode].get("positionId"))
+                    del book_dict[barcode]
         
         def on_error_retry(error):
             with _pending_lock:
@@ -188,10 +192,12 @@ def on_photo_eye_triggered(positionId):
             book_dict[barcode]["status"] = "fetching"
         else: 
             book_dict[barcode]["status"] = "progress"
-            book_dict[barcode]["push_time"] = photo_eye_trigger_time + (distance / belt_speed)
     
         socketio.emit('update_book', book_dict[barcode])
         
+    if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
+        write_bucket(book_dict[barcode].get("pusher"), book_dict[barcode].get("positionId"))
+        del book_dict[barcode]
     sys.stdout.flush()
 
 def check_connections():
@@ -270,8 +276,6 @@ def main():
     
     connect_barcode_signal(on_barcode_scanned)
     connect_photo_eye_signal(on_photo_eye_triggered)
-
-    start_interval_timer()
 
 @app.route('/api/system-status', methods=['GET'])
 def api_system_status():
