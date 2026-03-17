@@ -25,7 +25,7 @@ _photo_eye_monitor_running = False
 
 def float_to_regs(value: float) -> list[int]:
     hi, lo = struct.unpack(">HH", struct.pack(">f", float(value)))
-    return [hi, lo]
+    return [lo, hi]
 
 def connect_plc():
     global plc
