@@ -37,7 +37,7 @@ class BarcodeScannerPynput:
     def process_barcode(self, barcode):
         if self._callback:
             try:
-                threading.Thread(target=self._callback, args=(barcode,), daemon=True).start()
+                self._callback(barcode)
             except Exception:
                 pass
 

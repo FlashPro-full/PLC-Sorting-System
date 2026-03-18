@@ -136,7 +136,7 @@ def _photo_eye_monitor_loop():
                 callback = _photo_eye_callback
                 if callback is not None:
                     try:
-                        threading.Thread(target=callback, args=(positionId,), daemon=True).start()
+                        callback(positionId)
                     except Exception:
                         pass
 
