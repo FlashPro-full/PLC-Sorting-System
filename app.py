@@ -18,12 +18,9 @@ from barcode_scanner import connect_barcode_signal
 from plc import connect_photo_eye_signal, connect_plc, write_bucket, read_photo_eye
 from purescan_api import request_purescan_async, init_session, init_token
 from timer import start_interval_timer
-from state import book_dict
+from state import book_dict, barcode_queue
 
 load_dotenv()
-
-barcode_queue: deque = deque()
-queue_lock = threading.Lock()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
@@ -58,9 +55,8 @@ def on_barcode_scanned(barcode):
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     
-    with queue_lock:
-        barcode_queue.append(item)
-        book_dict[barcode] = item
+    barcode_queue.append(item)
+    book_dict[barcode] = item
     
     socketio.emit('add_book', item)
 
@@ -150,8 +146,8 @@ def _handle_purescan_error(barcode, error):
                     book_dict[barcode]["distance"] = pusher_data.get("distance")
                     book_dict[barcode]["pusher"] = pusher_data.get("pusher")
                         
-                socketio.emit('update_book', book_dict[barcode])
-                del book_dict[barcode]
+                    socketio.emit('update_book', book_dict[barcode])
+                    del book_dict[barcode]
         
         def on_error_retry(error):
             with _pending_lock:
@@ -171,16 +167,15 @@ def on_photo_eye_triggered(positionId):
     barcode = None
     belt_speed = 32.1
     
-    with queue_lock:
-        if len(barcode_queue) > 0:
-            item = barcode_queue.popleft()
-            if item:
-                barcode = item.get("barcode")
+    if len(barcode_queue) > 0:
+        item = barcode_queue.popleft()
+        if item:
+            barcode = item.get("barcode")
     
     with open("settings.json", "r") as f:
         belt_speed = json.load(f)['belt_speed']
     
-    if barcode:
+    if barcode and barcode in book_dict:
         distance = book_dict[barcode].get("distance")
         book_dict[barcode]["positionId"] = positionId
         book_dict[barcode]["start_time"] = photo_eye_trigger_time

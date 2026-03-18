@@ -18,8 +18,8 @@ def on_interval_100ms():
         
         start = item.get("start_time")
         if start is not None and current_time - start >= 1 and item.get("status") == "pending":
+            barcode_queue.popleft()
             del book_dict[barcode]
-            continue
 
         if (item.get("status") == "progress"
                 and item.get("push_time") is not None
