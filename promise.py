@@ -106,7 +106,6 @@ class Promise:
     
     @staticmethod
     def from_coroutine(coro: Coroutine) -> 'Promise':
-        """Create a Promise from a coroutine"""
         def executor(resolve, reject):
             loop = None
             try:
@@ -145,13 +144,11 @@ class Promise:
     
     @staticmethod
     def resolve(value: Any) -> 'Promise':
-        """Create a resolved Promise"""
         promise = Promise(executor=lambda resolve, reject: resolve(value))
         return promise
     
     @staticmethod
     def reject(reason: Exception) -> 'Promise':
-        """Create a rejected Promise"""
         promise = Promise(executor=lambda resolve, reject: reject(reason))
         return promise
     
@@ -161,16 +158,13 @@ class Promise:
             return
         
         self._started = True
-        # logger.info(f"🚀 Starting Promise execution in new thread...")
-        
+       
         def run_in_thread():
             loop = None
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                
-                # logger.info(f"🔄 Promise thread started, executing coroutine...")
-                
+                                
                 result = None
                 try:
                     result = loop.run_until_complete(
@@ -178,16 +172,13 @@ class Promise:
                     )
                     result_type = type(result).__name__
                     result_repr = "None" if result is None else f"{result_type}({bool(result)})"
-                    # logger.info(f"✅ Coroutine completed successfully, result type: {result_repr}")
                     
                     self.state = PromiseState.FULFILLED
                     self.value = result
                     
                     if self.callback is not None:
                         try:
-                            # logger.info(f"📞 Executing success callback with result (type: {result_type})...")
                             self.callback(result)
-                            # logger.info(f"✅ Success callback completed")
                         except Exception as callback_error:
                             logger.error(f"❌ Callback error: {callback_error}", exc_info=True)
                             if self.error_callback is not None:
@@ -195,8 +186,6 @@ class Promise:
                                     self.error_callback(callback_error)
                                 except:
                                     pass
-                    # else:
-                    #     logger.warning(f"⚠️ Coroutine returned result but no success callback registered")
                 except asyncio.TimeoutError:
                     error_msg = "Promise coroutine timed out after 30 seconds"
                     logger.error(f"⏱️ {error_msg}")
@@ -271,9 +260,6 @@ class Promise:
                     gc.collect()
                 except:
                     pass
-                
-                # logger.info(f"🔄 Promise thread finished")
         
         self.thread = threading.Thread(target=run_in_thread, daemon=True, name=f"Promise-{id(self)}")
         self.thread.start()
-        # logger.info(f"✅ Promise thread started: {self.thread.name}")
