@@ -1,7 +1,7 @@
 import threading
 import time
 from plc import write_bucket
-from state import book_dict
+from state import book_dict, barcode_queue
 
 INTERVAL_100MS = 0.1
 _timer_thread = None
