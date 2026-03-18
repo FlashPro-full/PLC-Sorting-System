@@ -132,7 +132,7 @@ def _photo_eye_monitor_loop():
                 connect_plc()
 
             positionId = read_photo_eye()
-            if positionId != last_positionId:
+            if last_positionId != 0 and positionId != last_positionId:
                 callback = _photo_eye_callback
                 if callback is not None:
                     try:
