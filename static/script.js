@@ -291,6 +291,21 @@ function updateTablePositions() {
             return;
         }
 
+        if (item.status === "pending" || item.status === "No response") {
+            if (item.start_time != null) {
+                const startTime = typeof item.start_time === 'string' ? parseFloat(item.start_time) : item.start_time;
+                const elapsed = currentTime - startTime;
+                if (elapsed >= 0) {
+                    const beltSpeed = currentBeltSpeed > 0 ? currentBeltSpeed : 32.1;
+                    const locationCm = elapsed * beltSpeed;
+                    if (locationCm >= currentMaxDistance) {
+                        itemsToRemove.push(barcode);
+                    }
+                }
+            }
+            return;
+        }
+
         if (item.status !== "progress" || !item.positionId || !item.start_time) {
             return;
         }

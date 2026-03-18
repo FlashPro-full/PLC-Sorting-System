@@ -53,13 +53,28 @@ function runPositionUpdate() {
 
     Object.keys(items).forEach(function (barcode) {
         const item = items[barcode];
-        if (item.status === "routing" || item.status === "completed" || item.status === "No response") {
+        if (item.status === "routing" || item.status === "completed") {
             if (item.start_time == null) {
                 item.start_time = currentTime;
             }
             const routingDuration = currentTime - item.start_time;
             if (routingDuration >= 1.5) {
                 itemsToRemove.push(barcode);
+            }
+            return;
+        }
+
+        if (item.status === "pending" || item.status === "No response") {
+            if (item.start_time != null) {
+                const startTime = typeof item.start_time === "string" ? parseFloat(item.start_time) : item.start_time;
+                const elapsed = currentTime - startTime;
+                if (elapsed >= 0) {
+                    const speed = beltSpeed > 0 ? beltSpeed : DEFAULT_BELT_SPEED;
+                    const locationCm = elapsed * speed;
+                    if (locationCm >= maxDistance) {
+                        itemsToRemove.push(barcode);
+                    }
+                }
             }
             return;
         }
