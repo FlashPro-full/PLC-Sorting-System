@@ -115,9 +115,10 @@ def on_purescan_response(barcode, response):
 
         socketio.emit('update_book', book_dict[barcode])
 
-    if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
-        write_bucket(book_dict[barcode].get("pusher"), book_dict[barcode].get("positionId"))
-        del book_dict[barcode]
+    if barcode in book_dict:
+        if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
+            write_bucket(book_dict[barcode].get("positionId"), book_dict[barcode].get("pusher"))
+            del book_dict[barcode]
 
 def _handle_purescan_error(barcode, error):
     if not barcode:
@@ -156,9 +157,10 @@ def _handle_purescan_error(barcode, error):
                         
                 socketio.emit('update_book', book_dict[barcode])
                 
-                if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
-                    write_bucket(book_dict[barcode].get("pusher"), book_dict[barcode].get("positionId"))
-                    del book_dict[barcode]
+                if barcode in book_dict:
+                    if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
+                        write_bucket(book_dict[barcode].get("positionId"), book_dict[barcode].get("pusher"))
+                        del book_dict[barcode]
         
         def on_error_retry(error):
             with _pending_lock:
@@ -197,9 +199,11 @@ def on_photo_eye_triggered(positionId):
     
         socketio.emit('update_book', book_dict[barcode])
         
-    if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
-        write_bucket(book_dict[barcode].get("pusher"), book_dict[barcode].get("positionId"))
-        del book_dict[barcode]
+    if barcode in book_dict:
+        if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
+            write_bucket(book_dict[barcode].get("positionId"), book_dict[barcode].get("pusher"))
+            del book_dict[barcode]
+    
     sys.stdout.flush()
 
 def check_connections():

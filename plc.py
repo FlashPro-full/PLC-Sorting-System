@@ -87,11 +87,13 @@ def write_pushers(values: list[float]):
 def write_belt_speed(speed: float):
     global plc
 
+    belt_speed = speed / 10
+
     with modbus_lock:
         if plc is None:
             plc = connect_plc()
         try:
-            result = plc.write_registers(0x7018, float_to_regs(speed), slave=UNIT_ID)
+            result = plc.write_registers(0x7018, float_to_regs(belt_speed), slave=UNIT_ID)
             if result.isError():
                 print(f"❌ Modbus write error: {result}")
         except Exception as e:
@@ -104,7 +106,7 @@ def write_trigger_pusher(pusher: int):
         if plc is None:
             plc = connect_plc()
         try:
-            result = plc.write_register(0x0001, pusher, slave=UNIT_ID)
+            result = plc.write_register(0x0004, pusher, slave=UNIT_ID)
             if result.isError():
                 print(f"❌ Modbus write error: {result}")
                 return 0
@@ -113,26 +115,25 @@ def write_trigger_pusher(pusher: int):
             print(f"❌ Modbus write error: {e}")
             return 0
 
-def write_bucket(pusher: int, position: int):
-    global plc
+def write_bucket(value, pusher):
+    
+    if not (101 <= value <= 150):
+        print(f"❌ Invalid bucket value: {value}. Must be between 101 and 150.")
+        return -1
+
+    register_address = 0x0064 + (value - 101)
 
     pusher_key = f"Pusher {pusher}"
-
-    pushers = {}
-    with open("settings.json", "r") as f:
-        pushers = json.load(f)['pushers']
-
-    if pusher_key not in pushers:
+    if pusher_key not in SETTINGS:
         print(f"❌ Pusher {pusher} not found in settings.json")
         return -1
 
-    address = 0x0064 + (position - 101)
-    
     with modbus_lock:
-        if plc is None:
-            plc = connect_plc()
         try:
-            plc.write_register(address, pusher, slave=UNIT_ID)
+            plc.write_register(register_address, pusher, slave=UNIT_ID)
+
+            print(f"✅ Updated register 0x{register_ref:04X} with {value}")
+            print(f"✅ Wrote pusher {pusher} to register 0x{register_address:04X}")
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
 
@@ -173,16 +174,16 @@ def _photo_eye_monitor_loop():
             if plc is None:
                 connect_plc()
 
-            current_positionId = read_photo_eye()
-            if current_positionId != last_positionId:
+            positionId = read_photo_eye()
+            if positionId != last_positionId:
                 callback = _photo_eye_callback
                 if callback is not None:
                     try:
-                        threading.Thread(target=callback, args=(current_positionId,), daemon=True).start()
+                        threading.Thread(target=callback, args=(positionId,), daemon=True).start()
                     except Exception:
                         pass
 
-            last_positionId = current_positionId
+            last_positionId = positionId
             time.sleep(reconnect_interval)
         except Exception:
             now = time.time()
