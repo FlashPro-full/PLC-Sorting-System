@@ -24,12 +24,6 @@ _session_lock = threading.Lock()
 _token = None
 _token_lock = threading.Lock()
 
-_purescan_loop = None
-_purescan_loop_thread = None
-_purescan_loop_lock = threading.Lock()
-_purescan_loop_ready = threading.Event()
-_shared_async_session = None
-
 def init_session():
     global _session
     _session = requests.Session()
@@ -98,40 +92,15 @@ def get_pusher_number(label: str):
                     "distance": config.get('distance')
                 }
 
-def _run_purescan_loop():
-    global _purescan_loop, _shared_async_session
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    _purescan_loop = loop
-    connector = aiohttp.TCPConnector(limit=100, limit_per_host=50)
-    _shared_async_session = aiohttp.ClientSession(connector=connector)
-    _purescan_loop_ready.set()
-    loop.run_forever()
+_async_session = None
 
-
-def _get_purescan_loop():
-    global _purescan_loop, _purescan_loop_thread
-    with _purescan_loop_lock:
-        if _purescan_loop_thread is None or not _purescan_loop_thread.is_alive():
-            _purescan_loop_ready.clear()
-            _purescan_loop_thread = threading.Thread(target=_run_purescan_loop, daemon=True)
-            _purescan_loop_thread.start()
-            _purescan_loop_ready.wait(timeout=5.0)
-    return _purescan_loop
-
-
-async def _get_async_session():
-    if _shared_async_session is not None:
-        return _shared_async_session
-    loop = asyncio.get_event_loop()
-    try:
-        if loop.is_closed():
-            return None
-    except RuntimeError:
-        return None
-    connector = aiohttp.TCPConnector(limit=100, limit_per_host=50)
-    session = aiohttp.ClientSession(connector=connector)
-    return session
+def _get_async_session():
+    global _async_session
+    if _async_session is None or _async_session.closed:
+        _async_session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(limit=100, limit_per_host=50)
+        )
+    return _async_session
 
 def _label_from_purescan_response(product_data: Dict) -> str:
     if not product_data.get('result'):
@@ -169,11 +138,7 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
             logger.warning(f"⚠️ No token available for barcode {barcode}")
             return None
 
-        async_session = await _get_async_session()
-        if not async_session:
-            logger.error(f"❌ Failed to get async session for barcode {barcode}")
-            return None
-
+        async_session = _get_async_session()
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {token}',
@@ -235,76 +200,16 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
             logger.error(f"❌ Client error requesting Purescan API for barcode {barcode}: {e}")
         except Exception as e:
             logger.error(f"❌ Unexpected error in request_purescan for barcode {barcode}: {e}", exc_info=True)
-        finally:
-            if async_session and async_session is not _shared_async_session:
-                try:
-                    await async_session.close()
-                except Exception:
-                    pass
 
         return result
     except Exception as e:
         logger.error(f"❌ Fatal error in request_purescan for barcode {barcode}: {e}", exc_info=True)
         return None
 
-class _PurescanPromise:
-    def __init__(self, future):
-        self._future = future
-        self._callback = None
-        self._error_callback = None
-        self._invoked = False
-        self._lock = threading.Lock()
-        future.add_done_callback(self._on_done)
-
-    def _on_done(self, _):
-        self._invoke_callbacks()
-
-    def _invoke_callbacks(self):
-        if not self._future.done():
-            return
-        with self._lock:
-            if self._invoked:
-                return
-            if self._callback is None and self._error_callback is None:
-                return
-            self._invoked = True
-        try:
-            result = self._future.result()
-            if self._callback is not None:
-                try:
-                    self._callback(result)
-                except Exception as e:
-                    logger.error(f"Callback error: {e}", exc_info=True)
-        except Exception as e:
-            if self._error_callback is not None:
-                try:
-                    self._error_callback(e)
-                except Exception as cb_e:
-                    logger.error(f"Error callback error: {cb_e}", exc_info=True)
-
-    def then(self, callback=None, error_callback=None):
-        if callback is not None:
-            self._callback = callback
-        if error_callback is not None:
-            self._error_callback = error_callback
-        if self._future.done():
-            self._invoke_callbacks()
-        return self
-
-    def catch(self, error_callback):
-        self._error_callback = error_callback
-        if self._future.done():
-            self._invoke_callbacks()
-        return self
-
+from promise import Promise
 
 def request_purescan_async(barcode: str):
-    loop = _get_purescan_loop()
-    future = asyncio.run_coroutine_threadsafe(
-        asyncio.wait_for(request_purescan(barcode), timeout=30.0),
-        loop
-    )
-    return _PurescanPromise(future)
+    return Promise(request_purescan(barcode))
 
 def request_purescan_sync(barcode: str):
     import asyncio

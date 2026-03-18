@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+import time
 from enum import Enum
 from typing import Callable, Any, Coroutine, Optional
 from contextlib import suppress
@@ -14,6 +15,24 @@ if not logger.handlers:
     formatter = logging.Formatter('%(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+_loop = None
+_loop_thread = None
+_loop_lock = threading.Lock()
+
+def _get_loop():
+    global _loop, _loop_thread
+    with _loop_lock:
+        if _loop is None:
+            _loop = asyncio.new_event_loop()
+            def _run_loop():
+                asyncio.set_event_loop(_loop)
+                _loop.run_forever()
+            _loop_thread = threading.Thread(target=_run_loop, daemon=True)
+            _loop_thread.start()
+            while not _loop.is_running():
+                time.sleep(0.01)
+        return _loop
 
 class PromiseState(Enum):
     PENDING = "pending"
@@ -34,7 +53,6 @@ class Promise:
         self.error_callback: Optional[Callable[[Exception], None]] = None
         self.loop = loop
         self.task = None
-        self.thread = None
         self._started = False
         
         if executor:
@@ -154,112 +172,39 @@ class Promise:
     
     def _start(self):
         if self._started:
-            logger.warning("⚠️ Promise already started, ignoring duplicate start")
             return
-        
         self._started = True
-       
-        def run_in_thread():
-            loop = None
+        loop = _get_loop()
+        future = asyncio.run_coroutine_threadsafe(
+            asyncio.wait_for(self.coro, timeout=30.0),
+            loop
+        )
+
+        def _done(f):
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                                
-                result = None
-                try:
-                    result = loop.run_until_complete(
-                        asyncio.wait_for(self.coro, timeout=30.0)
-                    )
-                    result_type = type(result).__name__
-                    result_repr = "None" if result is None else f"{result_type}({bool(result)})"
-                    
-                    self.state = PromiseState.FULFILLED
-                    self.value = result
-                    
-                    if self.callback is not None:
-                        try:
-                            self.callback(result)
-                        except Exception as callback_error:
-                            logger.error(f"❌ Callback error: {callback_error}", exc_info=True)
-                            if self.error_callback is not None:
-                                try:
-                                    self.error_callback(callback_error)
-                                except:
-                                    pass
-                except asyncio.TimeoutError:
-                    error_msg = "Promise coroutine timed out after 30 seconds"
-                    logger.error(f"⏱️ {error_msg}")
-                    timeout_error = Exception(error_msg)
-                    self.state = PromiseState.REJECTED
-                    self.reason = timeout_error
-                    if self.error_callback is not None:
-                        try:
-                            self.error_callback(timeout_error)
-                        except Exception as e:
-                            logger.error(f"❌ Error callback error: {e}", exc_info=True)
-                    else:
-                        logger.warning(f"⚠️ Timeout occurred but no error callback registered")
-                except Exception as e:
-                    logger.error(f"❌ Promise execution error: {e}", exc_info=True)
-                    self.state = PromiseState.REJECTED
-                    self.reason = e
-                    if self.error_callback is not None:
-                        try:
-                            self.error_callback(e)
-                        except Exception as callback_error:
-                            logger.error(f"❌ Error callback error: {callback_error}", exc_info=True)
-                    else:
-                        logger.warning(f"⚠️ Exception occurred but no error callback registered: {e}")
+                result = f.result()
+                self.state = PromiseState.FULFILLED
+                self.value = result
+                if self.callback is not None:
+                    try:
+                        self.callback(result)
+                    except Exception as e:
+                        logger.error(f"❌ Callback error in then: {e}", exc_info=True)
+            except asyncio.TimeoutError:
+                self.state = PromiseState.REJECTED
+                self.reason = Exception("Promise coroutine timed out after 30 seconds")
+                if self.error_callback is not None:
+                    try:
+                        self.error_callback(self.reason)
+                    except Exception as e:
+                        logger.error(f"❌ Error callback error: {e}", exc_info=True)
             except Exception as e:
-                logger.error(f"❌ Fatal error in Promise thread: {e}", exc_info=True)
+                self.state = PromiseState.REJECTED
+                self.reason = e
                 if self.error_callback is not None:
                     try:
                         self.error_callback(e)
-                    except:
-                        pass
-            finally:
-                if loop is not None:
-                    try:
-                        if not loop.is_closed():
-                            try:
-                                pending = asyncio.all_tasks(loop)
-                                if pending:
-                                    for task in pending:
-                                        task.cancel()
-                                    try:
-                                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-                                    except Exception:
-                                        pass
-                            except (RuntimeError, ValueError):
-                                pass
-                            
-                            try:
-                                loop.run_until_complete(loop.shutdown_asyncgens())
-                            except (RuntimeError, ValueError, Exception):
-                                pass
-                            
-                            try:
-                                loop.run_until_complete(loop.shutdown_default_executor())
-                            except (RuntimeError, ValueError, Exception):
-                                pass
-                            
-                            try:
-                                loop.close()
-                            except Exception:
-                                pass
-                    except Exception as cleanup_error:
-                        logger.debug(f"Cleanup error (ignored): {cleanup_error}")
-                
-                try:
-                    asyncio.set_event_loop(None)
-                except:
-                    pass
-                
-                try:
-                    import gc
-                    gc.collect()
-                except:
-                    pass
-        
-        self.thread = threading.Thread(target=run_in_thread, daemon=True, name=f"Promise-{id(self)}")
-        self.thread.start()
+                    except Exception as ce:
+                        logger.error(f"❌ Error callback error: {ce}", exc_info=True)
+
+        future.add_done_callback(_done)
