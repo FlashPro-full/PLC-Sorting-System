@@ -8,8 +8,6 @@ import threading
 import webbrowser
 from datetime import datetime
 import json
-from typing import Dict
-from collections import deque
 
 from routes.scan import scan_bp
 from routes.settings import settings_bp
