@@ -71,8 +71,13 @@ def cleanup_modbus():
 def write_bucket(pusher):
     global plc
 
+    pushers = {}
+    with open("settings.json", "r") as f:
+        pushers = json.load(f)['pushers']
+
     pusher_key = f"Pusher {pusher}"
-    if pusher_key not in SETTINGS:
+    
+    if pusher_key not in pushers:
         print(f"❌ Pusher {pusher} not found in settings.json")
         return 0
 
