@@ -17,10 +17,10 @@ from routes.settings import settings_bp
 from barcode_scanner import connect_barcode_signal
 from plc import connect_photo_eye_signal, connect_plc, write_bucket, read_photo_eye
 from purescan_api import request_purescan_async, init_session, init_token
+from timer import start_interval_timer
+from state import book_dict
 
 load_dotenv()
-
-book_dict: Dict[str, dict] = {}
 
 barcode_queue: deque = deque()
 queue_lock = threading.Lock()
@@ -34,7 +34,6 @@ _pending_lock = threading.Lock()
 _request_start_times = {}
 _request_times_lock = threading.Lock()
 
-_test_signals_started = False
 
 def on_barcode_scanned(barcode):
     scan_time = time.time()
@@ -112,13 +111,9 @@ def on_purescan_response(barcode, response):
         
         if book_dict[barcode].get("status") == "fetching":
             book_dict[barcode]["status"] = "progress"
+            book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
 
         socketio.emit('update_book', book_dict[barcode])
-
-    if barcode in book_dict:
-        if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
-            write_bucket(book_dict[barcode].get("positionId"), book_dict[barcode].get("pusher"))
-            del book_dict[barcode]
 
 def _handle_purescan_error(barcode, error):
     if not barcode:
@@ -156,11 +151,7 @@ def _handle_purescan_error(barcode, error):
                     book_dict[barcode]["pusher"] = pusher_data.get("pusher")
                         
                 socketio.emit('update_book', book_dict[barcode])
-                
-                if barcode in book_dict:
-                    if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
-                        write_bucket(book_dict[barcode].get("positionId"), book_dict[barcode].get("pusher"))
-                        del book_dict[barcode]
+                del book_dict[barcode]
         
         def on_error_retry(error):
             with _pending_lock:
@@ -173,6 +164,7 @@ def _handle_purescan_error(barcode, error):
         return
 
 def on_photo_eye_triggered(positionId):
+
     print(f"beam break: {positionId} on {time.time()}", flush=True)
     
     photo_eye_trigger_time = time.time()
@@ -196,14 +188,10 @@ def on_photo_eye_triggered(positionId):
             book_dict[barcode]["status"] = "fetching"
         else: 
             book_dict[barcode]["status"] = "progress"
+            book_dict[barcode]["push_time"] = photo_eye_trigger_time + (distance / belt_speed)
     
         socketio.emit('update_book', book_dict[barcode])
         
-    if barcode in book_dict:
-        if book_dict[barcode].get("positionId") is not None and book_dict[barcode].get("pusher") is not None:
-            write_bucket(book_dict[barcode].get("positionId"), book_dict[barcode].get("pusher"))
-            del book_dict[barcode]
-    
     sys.stdout.flush()
 
 def check_connections():
@@ -253,16 +241,6 @@ def handle_connect():
     except Exception:
         pass
 
-    global _test_signals_started
-    if not _test_signals_started:
-        _test_signals_started = True
-        import test_signals
-        def delayed_test():
-            time.sleep(10)
-            test_signals.generate_test_signals(100, 0.5, 0.5)
-        test_thread = threading.Thread(target=delayed_test, daemon=True)
-        test_thread.start()
-
 @socketio.on('disconnect')
 def handle_disconnect():
     pass
@@ -282,6 +260,8 @@ def main():
     
     connect_barcode_signal(on_barcode_scanned)
     connect_photo_eye_signal(on_photo_eye_triggered)
+
+    start_interval_timer()
 
 @app.route('/api/system-status', methods=['GET'])
 def api_system_status():

@@ -38,9 +38,7 @@ def update_pushers():
             settings = json.load(f)
         with open("settings.json", "w") as f:
             json.dump({**settings, "pushers": pushers}, f, indent=2)
-        
-        from plc import write_pushers
-        write_pushers([pusher.get("distance") for pusher in pushers.values()])
+
         return jsonify({"message": "Pushers updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -56,8 +54,8 @@ def trigger_pusher():
     if pusher < 1 or pusher > 8:
         return jsonify({"error": "Pusher must be 1-8"}), 400
     try:
-        from plc import write_trigger_pusher
-        result = write_trigger_pusher(pusher)
+        from plc import write_bucket
+        result = write_bucket(pusher)
         if result == 1:
             return jsonify({"message": f"Pusher {pusher} triggered"})
         return jsonify({"error": "Trigger failed"}), 500
@@ -80,8 +78,6 @@ def update_belt_speed():
         with open("settings.json", "w") as f:
             json.dump({**settings, "belt_speed": speed}, f, indent=2)
 
-        from plc import write_belt_speed
-        write_belt_speed(speed)
         return jsonify({"message": "Belt speed updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

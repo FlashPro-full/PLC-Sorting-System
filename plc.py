@@ -68,45 +68,19 @@ def cleanup_modbus():
         plc.close()
     plc = None
 
-def write_pushers(values: list[float]):
+def write_bucket(pusher):
     global plc
+
+    pusher_key = f"Pusher {pusher}"
+    if pusher_key not in SETTINGS:
+        print(f"❌ Pusher {pusher} not found in settings.json")
+        return 0
 
     with modbus_lock:
         if plc is None:
             plc = connect_plc()
         try:
-            regs = []
-            for v in values:
-                regs.extend(float_to_regs(v))
-            result = plc.write_registers(0x7000, regs, slave=UNIT_ID)
-            if result.isError():
-                print(f"❌ Modbus write error: {result}")
-        except Exception as e:
-            print(f"❌ Modbus write error: {e}")
-
-def write_belt_speed(speed: float):
-    global plc
-
-    belt_speed = speed / 10
-
-    with modbus_lock:
-        if plc is None:
-            plc = connect_plc()
-        try:
-            result = plc.write_registers(0x7018, float_to_regs(belt_speed), slave=UNIT_ID)
-            if result.isError():
-                print(f"❌ Modbus write error: {result}")
-        except Exception as e:
-            print(f"❌ Modbus write error: {e}")
-
-def write_trigger_pusher(pusher: int):
-    global plc
-
-    with modbus_lock:
-        if plc is None:
-            plc = connect_plc()
-        try:
-            result = plc.write_register(0x0004, pusher, slave=UNIT_ID)
+            result = plc.write_register(0x0001, pusher, slave=UNIT_ID)
             if result.isError():
                 print(f"❌ Modbus write error: {result}")
                 return 0
@@ -114,30 +88,8 @@ def write_trigger_pusher(pusher: int):
         except Exception as e:
             print(f"❌ Modbus write error: {e}")
             return 0
-
-def write_bucket(value, pusher):
     
-    if not (101 <= value <= 150):
-        print(f"❌ Invalid bucket value: {value}. Must be between 101 and 150.")
-        return -1
-
-    register_address = 0x0064 + (value - 101)
-
-    pusher_key = f"Pusher {pusher}"
-    if pusher_key not in SETTINGS:
-        print(f"❌ Pusher {pusher} not found in settings.json")
-        return -1
-
-    with modbus_lock:
-        try:
-            plc.write_register(register_address, pusher, slave=UNIT_ID)
-
-            print(f"✅ Updated register 0x{register_ref:04X} with {value}")
-            print(f"✅ Wrote pusher {pusher} to register 0x{register_address:04X}")
-        except Exception as e:
-            print(f"❌ Modbus write error: {e}")
-
-    return 1
+    return 0
 
 def read_photo_eye():
     global plc
@@ -145,7 +97,7 @@ def read_photo_eye():
         plc = connect_plc()
     try:
         with modbus_lock:
-            result = plc.read_holding_registers(0x0002, count=1, slave=UNIT_ID)
+            result = plc.read_holding_registers(0x0000, count=1, slave=UNIT_ID)
             if result and not result.isError() and result.registers:
                 return result.registers[0]
             return None
