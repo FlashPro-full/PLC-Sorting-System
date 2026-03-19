@@ -83,6 +83,10 @@ def write_bucket(pusher):
     if pusher_key not in pushers:
         print(f"❌ Pusher {pusher} not found in settings.json")
         return 0
+    config = pushers.get(pusher_key) or {}
+    label = config.get("label")
+    if isinstance(label, str) and label.strip().lower() == "none":
+        return 1
 
     with modbus_lock:
         if plc is None:

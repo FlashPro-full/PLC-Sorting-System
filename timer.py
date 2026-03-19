@@ -2,10 +2,11 @@ import threading
 import time
 import logging
 from plc import write_bucket
-from purescan_api import request_purescan_async, get_pusher_number
+from purescan_api import request_purescan_async
 from state import book_dict, barcode_queue, event_queue, state_lock, enqueue_event
 
 INTERVAL_100MS = 0.1
+MAX_EVENTS_PER_TICK = 300
 _timer_thread = None
 _timer_running = False
 _timer_lock = threading.Lock()
@@ -24,6 +25,7 @@ def on_interval_100ms():
     current_time = time.time()
     _drain_events(current_time)
 
+    push_list = []
     with state_lock:
         for barcode in list(book_dict):
             item = book_dict.get(barcode)
@@ -41,18 +43,30 @@ def on_interval_100ms():
                     and item.get("push_time") is not None
                     and current_time >= item.get("push_time")
                     and item.get("positionId") is not None
-                    and item.get("pusher") is not None):
-                result = write_bucket(item.get("pusher"))
-                if result == 1:
+                    and item.get("pusher") is not None
+                    and not (isinstance(item.get("label"), str) and item.get("label").strip().lower() == "none")):
+                push_list.append((barcode, item.get("pusher")))
+
+    done = []
+    for barcode, pusher in push_list:
+        result = write_bucket(pusher)
+        if result == 1:
+            done.append(barcode)
+    if done:
+        with state_lock:
+            for barcode in done:
+                if barcode in book_dict:
                     del book_dict[barcode]
 
 def _drain_events(now):
-    while True:
+    processed = 0
+    while processed < MAX_EVENTS_PER_TICK:
         with state_lock:
             if not event_queue:
                 return
             event = event_queue.popleft()
         _handle_event(event, now)
+        processed += 1
 
 def _emit(event_name, data):
     if _socketio is not None:
@@ -90,6 +104,8 @@ def _handle_event(event, now):
     if event_type == "photo_eye":
         position_id = payload
         barcode = None
+        emit_data = None
+        remove_barcode = None
         with state_lock:
             if barcode_queue:
                 item = barcode_queue.popleft()
@@ -98,12 +114,20 @@ def _handle_event(event, now):
                 distance = book_dict[barcode].get("distance")
                 book_dict[barcode]["positionId"] = position_id
                 book_dict[barcode]["start_time"] = ts
-                if distance is None:
+                if book_dict[barcode].get("no_pusher") is True:
+                    book_dict[barcode]["status"] = "done"
+                    emit_data = dict(book_dict[barcode])
+                    remove_barcode = barcode
+                elif distance is None:
                     book_dict[barcode]["status"] = "fetching"
                 else:
                     book_dict[barcode]["status"] = "progress"
                     book_dict[barcode]["push_time"] = ts + (distance / belt_speed)
-                _emit("update_book", book_dict[barcode])
+                    emit_data = dict(book_dict[barcode])
+            if remove_barcode is not None and remove_barcode in book_dict:
+                del book_dict[remove_barcode]
+        if emit_data is not None:
+            _emit("update_book", emit_data)
         return
 
     if event_type == "purescan_ok":
@@ -112,29 +136,43 @@ def _handle_event(event, now):
         if not response:
             enqueue_event("purescan_err", {"barcode": barcode, "error": "no response"}, ts)
             return
+        emit_data = None
         with state_lock:
             if barcode in book_dict and book_dict[barcode].get("pusher") is None:
+                label = response.get("label")
+                no_pusher = isinstance(label, str) and label.strip().lower() == "none"
                 distance = response.get("distance")
-                book_dict[barcode]["pusher"] = response.get("pusher")
-                book_dict[barcode]["label"] = response.get("label")
-                book_dict[barcode]["distance"] = distance
+                book_dict[barcode]["pusher"] = None if no_pusher else response.get("pusher")
+                book_dict[barcode]["label"] = label
+                book_dict[barcode]["distance"] = None if no_pusher else distance
+                book_dict[barcode]["no_pusher"] = no_pusher
                 if book_dict[barcode].get("status") == "fetching":
-                    book_dict[barcode]["status"] = "progress"
-                    book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
-                _emit("update_book", book_dict[barcode])
+                    if no_pusher:
+                        book_dict[barcode]["status"] = "done"
+                    else:
+                        book_dict[barcode]["status"] = "progress"
+                        book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
+                emit_data = dict(book_dict[barcode])
+                if no_pusher and barcode in book_dict:
+                    del book_dict[barcode]
+        if emit_data is not None:
+            _emit("update_book", emit_data)
         return
 
     if event_type == "purescan_err":
         barcode = payload.get("barcode")
-        pusher_data = get_pusher_number("Extra")
+        emit_data = None
         with state_lock:
             if barcode in book_dict:
                 book_dict[barcode]["status"] = "No response"
-                book_dict[barcode]["label"] = pusher_data.get("label")
-                book_dict[barcode]["distance"] = pusher_data.get("distance")
-                book_dict[barcode]["pusher"] = pusher_data.get("pusher")
-                _emit("update_book", book_dict[barcode])
+                book_dict[barcode]["label"] = "None"
+                book_dict[barcode]["distance"] = None
+                book_dict[barcode]["pusher"] = None
+                book_dict[barcode]["no_pusher"] = True
+                emit_data = dict(book_dict[barcode])
                 del book_dict[barcode]
+        if emit_data is not None:
+            _emit("update_book", emit_data)
         return
 
         
