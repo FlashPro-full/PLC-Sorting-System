@@ -9,6 +9,8 @@ from pymodbus.client import ModbusTcpClient #type: ignore
 
 dotenv.load_dotenv()
 
+pushers: dict[str, dict[str, str | int]] = {}
+
 PLC_IP = os.getenv('PLC_IP')
 PLC_PORT = int(os.getenv('PLC_PORT', '502'))
 PLC_TIMEOUT = float(os.getenv('PLC_TIMEOUT', '5.0'))
@@ -22,6 +24,11 @@ _photo_eye_callback = None
 _photo_eye_callbacks_lock = threading.Lock()
 _photo_eye_monitor_thread = None
 _photo_eye_monitor_running = False
+
+def set_pushers_plc():
+    global pushers
+    with open("settings.json", "r") as f:
+        pushers = json.load(f)['pushers']
 
 def float_to_regs(value: float) -> list[int]:
     hi, lo = struct.unpack(">HH", struct.pack(">f", float(value)))
@@ -70,10 +77,6 @@ def cleanup_modbus():
 
 def write_bucket(pusher):
     global plc
-
-    pushers = {}
-    with open("settings.json", "r") as f:
-        pushers = json.load(f)['pushers']
 
     pusher_key = f"Pusher {pusher}"
     
@@ -124,7 +127,7 @@ def disconnect_photo_eye_signal(callback):
 def _photo_eye_monitor_loop():
     last_positionId = 0
     last_error_log = 0.0
-    reconnect_interval = 0.1
+    reconnect_interval = 0.02
 
     while _photo_eye_monitor_running:
         try:

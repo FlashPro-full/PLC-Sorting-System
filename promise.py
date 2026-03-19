@@ -4,7 +4,7 @@ import threading
 import time
 from enum import Enum
 from typing import Callable, Any, Coroutine, Optional
-from contextlib import suppress
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -19,6 +19,7 @@ if not logger.handlers:
 _loop = None
 _loop_thread = None
 _loop_lock = threading.Lock()
+_callback_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="promise-cb")
 
 def _get_loop():
     global _loop, _loop_thread
@@ -54,6 +55,7 @@ class Promise:
         self.loop = loop
         self.task = None
         self._started = False
+        self._state_lock = threading.Lock()
         
         if executor:
             self._execute_executor()
@@ -69,15 +71,9 @@ class Promise:
         if not self._started and self.coro:
             self._start()
         elif self.state == PromiseState.FULFILLED and self.callback is not None:
-            try:
-                self.callback(self.value)
-            except Exception as e:
-                logger.error(f"❌ Callback error in then: {e}", exc_info=True)
+            self._invoke_callback(self.callback, self.value, "then")
         elif self.state == PromiseState.REJECTED and self.error_callback is not None and self.reason is not None:
-            try:
-                self.error_callback(self.reason)
-            except Exception as e:
-                logger.error(f"❌ Error callback error in then: {e}", exc_info=True)
+            self._invoke_callback(self.error_callback, self.reason, "then")
         
         return self
     
@@ -88,34 +84,31 @@ class Promise:
             self._start()
         elif self.state == PromiseState.REJECTED and self.reason is not None:
             if self.error_callback is not None:
-                try:
-                    self.error_callback(self.reason)
-                except Exception as e:
-                    logger.error(f"❌ Error callback error in catch: {e}", exc_info=True)
+                self._invoke_callback(self.error_callback, self.reason, "catch")
         
         return self
     
     def _execute_executor(self):
         if self.executor:
             def resolve(value):
-                if self.state == PromiseState.PENDING:
+                with self._state_lock:
+                    if self.state != PromiseState.PENDING:
+                        return
                     self.state = PromiseState.FULFILLED
                     self.value = value
-                    if self.callback is not None:
-                        try:
-                            self.callback(value)
-                        except Exception as e:
-                            logger.error(f"❌ Callback error: {e}", exc_info=True)
+                    cb = self.callback
+                if cb is not None:
+                    self._invoke_callback(cb, value, "resolve")
             
             def reject(reason):
-                if self.state == PromiseState.PENDING:
+                with self._state_lock:
+                    if self.state != PromiseState.PENDING:
+                        return
                     self.state = PromiseState.REJECTED
                     self.reason = reason
-                    if self.error_callback is not None:
-                        try:
-                            self.error_callback(reason)
-                        except Exception as e:
-                            logger.error(f"❌ Error callback error: {e}", exc_info=True)
+                    ecb = self.error_callback
+                if ecb is not None:
+                    self._invoke_callback(ecb, reason, "reject")
             
             try:
                 self.executor(resolve, reject)
@@ -183,28 +176,34 @@ class Promise:
         def _done(f):
             try:
                 result = f.result()
-                self.state = PromiseState.FULFILLED
-                self.value = result
-                if self.callback is not None:
-                    try:
-                        self.callback(result)
-                    except Exception as e:
-                        logger.error(f"❌ Callback error in then: {e}", exc_info=True)
+                with self._state_lock:
+                    self.state = PromiseState.FULFILLED
+                    self.value = result
+                    cb = self.callback
+                if cb is not None:
+                    self._invoke_callback(cb, result, "then")
             except asyncio.TimeoutError:
-                self.state = PromiseState.REJECTED
-                self.reason = Exception("Promise coroutine timed out after 30 seconds")
-                if self.error_callback is not None:
-                    try:
-                        self.error_callback(self.reason)
-                    except Exception as e:
-                        logger.error(f"❌ Error callback error: {e}", exc_info=True)
+                timeout_error = Exception("Promise coroutine timed out after 30 seconds")
+                with self._state_lock:
+                    self.state = PromiseState.REJECTED
+                    self.reason = timeout_error
+                    ecb = self.error_callback
+                if ecb is not None:
+                    self._invoke_callback(ecb, timeout_error, "timeout")
             except Exception as e:
-                self.state = PromiseState.REJECTED
-                self.reason = e
-                if self.error_callback is not None:
-                    try:
-                        self.error_callback(e)
-                    except Exception as ce:
-                        logger.error(f"❌ Error callback error: {ce}", exc_info=True)
+                with self._state_lock:
+                    self.state = PromiseState.REJECTED
+                    self.reason = e
+                    ecb = self.error_callback
+                if ecb is not None:
+                    self._invoke_callback(ecb, e, "error")
 
         future.add_done_callback(_done)
+
+    def _invoke_callback(self, cb: Callable, arg: Any, where: str):
+        def _runner():
+            try:
+                cb(arg)
+            except Exception as e:
+                logger.error(f"❌ Callback error in {where}: {e}", exc_info=True)
+        _callback_executor.submit(_runner)

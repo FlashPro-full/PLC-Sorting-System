@@ -23,6 +23,12 @@ _session = None
 _session_lock = threading.Lock()
 _token = None
 _token_lock = threading.Lock()
+_refresh_lock = threading.Lock()
+
+def set_pushers_purescan():
+    global pushers
+    with open("settings.json", "r") as f:
+        pushers = json.load(f)['pushers']
 
 def init_session():
     global _session
@@ -77,9 +83,8 @@ def init_token():
         logger.error(f"❌ Failed to get token after {LOGIN_RETRIES} attempts: {last_error}")
 
 def get_pusher_number(label: str):
-    pushers = {}
-    with open("settings.json", "r") as f:
-        pushers = json.load(f)['pushers']
+    global pushers
+
     for pusher, config in pushers.items():
         if not isinstance(config, dict):
             continue
@@ -93,6 +98,7 @@ def get_pusher_number(label: str):
                 }
 
 _async_session = None
+_request_timeout = aiohttp.ClientTimeout(total=5)
 
 def _get_async_session():
     global _async_session
@@ -101,6 +107,18 @@ def _get_async_session():
             connector=aiohttp.TCPConnector(limit=100, limit_per_host=50)
         )
     return _async_session
+
+def _refresh_token_once():
+    with _token_lock:
+        if _token:
+            return True
+    with _refresh_lock:
+        with _token_lock:
+            if _token:
+                return True
+        init_token()
+    with _token_lock:
+        return bool(_token)
 
 def _label_from_purescan_response(product_data: Dict) -> str:
     if not product_data.get('result'):
@@ -123,13 +141,10 @@ def _label_from_purescan_response(product_data: Dict) -> str:
 
 
 async def request_purescan(barcode: str) -> Optional[Dict]:
-    global _token
+    global _token, pushers
+
     if not DATA_URL:
         return None
-
-    pushers = {}
-    with open("settings.json", "r") as f:
-        pushers = json.load(f)['pushers']
 
     try:
         with _token_lock:
@@ -147,7 +162,7 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
         result = None
 
         try:
-            async with async_session.post(DATA_URL, json=payload, headers=headers) as response:
+            async with async_session.post(DATA_URL, json=payload, headers=headers, timeout=_request_timeout) as response:
                 if response.status == 200:
                     product_data = await response.json()
                     label = _label_from_purescan_response(product_data)
@@ -158,15 +173,15 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                     with _token_lock:
                         _token = None
                     try:
-                        init_token()
+                        ok = await asyncio.to_thread(_refresh_token_once)
                         with _token_lock:
-                            if _token:
+                            if ok and _token:
                                 logger.info(f"✅ Token refreshed successfully, retrying request")
                                 headers_retry = {
                                     'Content-Type': 'application/json',
                                     'Authorization': f'Bearer {_token}',
                                 }
-                                async with async_session.post(DATA_URL, json=payload, headers=headers_retry) as retry_response:
+                                async with async_session.post(DATA_URL, json=payload, headers=headers_retry, timeout=_request_timeout) as retry_response:
                                     if retry_response.status == 200:
                                         product_data = await retry_response.json()
                                         label = _label_from_purescan_response(product_data)

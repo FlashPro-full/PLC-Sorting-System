@@ -38,7 +38,10 @@ def update_pushers():
             settings = json.load(f)
         with open("settings.json", "w") as f:
             json.dump({**settings, "pushers": pushers}, f, indent=2)
-
+        from plc import set_pushers_plc
+        set_pushers_plc()
+        from purescan_api import set_pushers_purescan
+        set_pushers_purescan()
         return jsonify({"message": "Pushers updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -77,7 +80,8 @@ def update_belt_speed():
             settings = json.load(f)
         with open("settings.json", "w") as f:
             json.dump({**settings, "belt_speed": speed}, f, indent=2)
-
+        from app import set_belt_speed
+        set_belt_speed()
         return jsonify({"message": "Belt speed updated successfully!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

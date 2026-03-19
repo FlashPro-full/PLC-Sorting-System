@@ -5,7 +5,7 @@ import random
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from barcode_scanner import _barcode_callback
+from barcode_scanner import _callback
 from plc import _photo_eye_callback
 
 barcodes = [
@@ -34,7 +34,7 @@ def generate_test_signals(count=None, interval=0.5, delay_after_barcode=0.2):
     use_list = count is None
     n = len(barcodes) if use_list else count
     
-    if not _barcode_callback:
+    if not _callback:
         return
     
     if not _photo_eye_callback:
@@ -46,7 +46,7 @@ def generate_test_signals(count=None, interval=0.5, delay_after_barcode=0.2):
             barcode = barcodes[i%19]
             
             try:
-                _barcode_callback(barcode)
+                _callback(barcode)
             except Exception as e:
                 print(f"❌ Error calling barcode callback: {e}")
             
