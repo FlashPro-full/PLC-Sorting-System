@@ -187,20 +187,14 @@ async def request_purescan(barcode: str) -> Optional[Dict]:
                                         label = _label_from_purescan_response(product_data)
                                         pusher_data = get_pusher_number(label)
                                         result = pusher_data
-                                    else:
-                                        logger.error(f"❌ Retry after token refresh failed with status {retry_response.status}")
-                                        result = None
-                            else:
-                                logger.error(f"❌ Failed to refresh token")
-                                result = None
                     except Exception as e:
                         logger.error(f"❌ Error refreshing token: {e}", exc_info=True)
-                        result = None
                 elif response.status == 404:
                     try:
                         error_body = await response.text()
                         logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}. Response: {error_body}")
-                        result = "Extra" if "Extra" in pushers else None
+                        if "Extra" in pushers:
+                            result = get_pusher_number("Extra")
                     except Exception:
                         logger.warning(f"⚠️ Purescan API returned status {response.status} for barcode {barcode}")
                 elif response.status == 500:
