@@ -130,7 +130,7 @@ def _handle_event(event, now):
 
         emit_data = None
 
-        if response is not None:
+        if response is None:
             with state_lock:
                 if barcode in book_dict:
                     book_dict[barcode]["status"] = "No response"
