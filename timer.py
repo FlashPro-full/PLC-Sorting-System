@@ -114,18 +114,12 @@ def _handle_event(event, now):
                 distance = book_dict[barcode].get("distance")
                 book_dict[barcode]["positionId"] = position_id
                 book_dict[barcode]["start_time"] = ts
-                if book_dict[barcode].get("no_pusher") is True:
-                    book_dict[barcode]["status"] = "done"
-                    emit_data = dict(book_dict[barcode])
-                    remove_barcode = barcode
-                elif distance is None:
+                if distance is None:
                     book_dict[barcode]["status"] = "fetching"
                 else:
                     book_dict[barcode]["status"] = "progress"
                     book_dict[barcode]["push_time"] = ts + (distance / belt_speed)
                     emit_data = dict(book_dict[barcode])
-            if remove_barcode is not None and remove_barcode in book_dict:
-                del book_dict[remove_barcode]
         if emit_data is not None:
             _emit("update_book", emit_data)
         return
@@ -133,28 +127,31 @@ def _handle_event(event, now):
     if event_type == "purescan_ok":
         barcode = payload.get("barcode")
         response = payload.get("response")
-        if not response:
-            enqueue_event("purescan_err", {"barcode": barcode, "error": "no response"}, ts)
-            return
+
         emit_data = None
+
+        if response is not None:
+            with state_lock:
+                if barcode in book_dict:
+                    book_dict[barcode]["status"] = "No response"
+                    book_dict[barcode]["label"] = "Fall Down"
+                    emit_data = dict(book_dict[barcode])
+                    del book_dict[barcode]
+            return
+        
         with state_lock:
             if barcode in book_dict and book_dict[barcode].get("pusher") is None:
                 label = response.get("label")
-                no_pusher = isinstance(label, str) and label.strip().lower() == "none"
                 distance = response.get("distance")
-                book_dict[barcode]["pusher"] = None if no_pusher else response.get("pusher")
+                pusher = response.get("pusher")
+                book_dict[barcode]["pusher"] = puser
                 book_dict[barcode]["label"] = label
-                book_dict[barcode]["distance"] = None if no_pusher else distance
-                book_dict[barcode]["no_pusher"] = no_pusher
+                book_dict[barcode]["distance"] = distance
                 if book_dict[barcode].get("status") == "fetching":
-                    if no_pusher:
-                        book_dict[barcode]["status"] = "done"
-                    else:
-                        book_dict[barcode]["status"] = "progress"
-                        book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
+                    book_dict[barcode]["status"] = "progress"
+                    book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
                 emit_data = dict(book_dict[barcode])
-                if no_pusher and barcode in book_dict:
-                    del book_dict[barcode]
+                del book_dict[barcode]
         if emit_data is not None:
             _emit("update_book", emit_data)
         return
@@ -165,10 +162,7 @@ def _handle_event(event, now):
         with state_lock:
             if barcode in book_dict:
                 book_dict[barcode]["status"] = "No response"
-                book_dict[barcode]["label"] = "None"
-                book_dict[barcode]["distance"] = None
-                book_dict[barcode]["pusher"] = None
-                book_dict[barcode]["no_pusher"] = True
+                book_dict[barcode]["label"] = "Fall Down"
                 emit_data = dict(book_dict[barcode])
                 del book_dict[barcode]
         if emit_data is not None:
