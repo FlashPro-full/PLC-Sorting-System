@@ -144,7 +144,7 @@ def _handle_event(event, now):
                 label = response.get("label")
                 distance = response.get("distance")
                 pusher = response.get("pusher")
-                book_dict[barcode]["pusher"] = puser
+                book_dict[barcode]["pusher"] = pusher
                 book_dict[barcode]["label"] = label
                 book_dict[barcode]["distance"] = distance
                 if book_dict[barcode].get("status") == "fetching":
