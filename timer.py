@@ -25,18 +25,15 @@ def on_interval_100ms():
     current_time = time.time()
     _drain_events(current_time)
 
-    push_list = []
     with state_lock:
+        if len(barcode_queue) > 0 and barcode_queue[0] and current_time - barcode_queue[0].get("start_time") >= 1:
+            barcode = barcode_queue[0].get("barcode")
+            barcode_queue.popleft()
+            book_dict.pop(barcode, None)
+
         for barcode in list(book_dict):
             item = book_dict.get(barcode)
             if not item:
-                continue
-
-            start = item.get("start_time")
-            if start is not None and current_time - start >= 1 and item.get("status") == "pending":
-                if barcode_queue and barcode_queue[0].get("barcode") == barcode:
-                    barcode_queue.popleft()
-                del book_dict[barcode]
                 continue
 
             if (item.get("status") == "progress"
@@ -45,18 +42,9 @@ def on_interval_100ms():
                     and item.get("positionId") is not None
                     and item.get("pusher") is not None
                     and not (isinstance(item.get("label"), str) and item.get("label").strip().lower() == "none")):
-                push_list.append((barcode, item.get("pusher")))
-
-    done = []
-    for barcode, pusher in push_list:
-        result = write_bucket(pusher)
-        if result == 1:
-            done.append(barcode)
-    if done:
-        with state_lock:
-            for barcode in done:
-                if barcode in book_dict:
-                    del book_dict[barcode]
+                result = write_bucket(item.get("pusher"))
+                if result == 1:
+                    book_dict.pop(barcode, None)
 
 def _drain_events(now):
     processed = 0
@@ -105,7 +93,6 @@ def _handle_event(event, now):
         position_id = payload
         barcode = None
         emit_data = None
-        remove_barcode = None
         with state_lock:
             if barcode_queue:
                 item = barcode_queue.popleft()
@@ -119,7 +106,8 @@ def _handle_event(event, now):
                 else:
                     book_dict[barcode]["status"] = "progress"
                     book_dict[barcode]["push_time"] = ts + (distance / belt_speed)
-                    emit_data = dict(book_dict[barcode])
+                emit_data = dict(book_dict[barcode])
+        
         if emit_data is not None:
             _emit("update_book", emit_data)
         return
@@ -136,11 +124,15 @@ def _handle_event(event, now):
                     book_dict[barcode]["status"] = "No response"
                     book_dict[barcode]["label"] = "Fall Down"
                     emit_data = dict(book_dict[barcode])
-                    del book_dict[barcode]
+
+            if emit_data is not None:
+                _emit("update_book", emit_data)
+                with state_lock:
+                    book_dict.pop(barcode, None)
             return
         
         with state_lock:
-            if barcode in book_dict and book_dict[barcode].get("pusher") is None:
+            if barcode in book_dict:
                 label = response.get("label")
                 distance = response.get("distance")
                 pusher = response.get("pusher")
@@ -151,7 +143,7 @@ def _handle_event(event, now):
                     book_dict[barcode]["status"] = "progress"
                     book_dict[barcode]["push_time"] = book_dict[barcode]["start_time"] + (distance / belt_speed)
                 emit_data = dict(book_dict[barcode])
-                del book_dict[barcode]
+                
         if emit_data is not None:
             _emit("update_book", emit_data)
         return
@@ -164,9 +156,11 @@ def _handle_event(event, now):
                 book_dict[barcode]["status"] = "No response"
                 book_dict[barcode]["label"] = "Fall Down"
                 emit_data = dict(book_dict[barcode])
-                del book_dict[barcode]
+
         if emit_data is not None:
             _emit("update_book", emit_data)
+            with state_lock:
+                book_dict.pop(barcode, None)
         return
 
         
